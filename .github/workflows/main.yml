@@ -5,7 +5,7 @@ on:
 
 permissions:
   contents: read
-  packages: read
+  packages: write
 
 jobs:
   build-and-test:
@@ -22,15 +22,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest \
+            .
+
       - name: Run Tests and JaCoCo
-        run: docker run --rm -v "${{ github.workspace }}:/workspace" -w /workspace ghcr.io/sergiomasegosa11/tictactoe-test:latest ./gradlew clean test jacocoTestReport
+        run: |
+          docker run --name tictactoe-test \
+            ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest \
+            ./gradlew clean test jacocoTestReport
 
-      - name: Show JaCoCo Report
-        run: find "${{ github.workspace }}/build" -type f | sort
+      - name: Copy JaCoCo report
+        run: docker cp tictactoe-test:/workspace/build/reports/jacoco/test/html ./jacoco-report
 
-      - name: Upload JaCoCo Report
+      - name: Remove test container
+        run: docker rm tictactoe-test
+
+      - name: Upload JaCoCo report
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-coverage-report
-          path: ${{ github.workspace }}/build/reports/jacoco/test/html
-          if-no-files-found: error
+          path: jacoco-report/
+
+      - name: Push Docker image
+        run: docker push ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest
