@@ -23,7 +23,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Tests and JaCoCo
-        run: docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/sergiomasegosa11/tictactoe-test:latest ./gradlew clean test jacocoTestReport
+        run: docker run --rm --mount type=bind,source=${{ github.workspace }},target=/workspace -w /workspace ghcr.io/sergiomasegosa11/tictactoe-test:latest ./gradlew clean test jacocoTestReport
+
+      - name: Check JaCoCo Report
+        run: find build/reports -type f | sort
 
       - name: Upload JaCoCo Report
         uses: actions/upload-artifact@v4
