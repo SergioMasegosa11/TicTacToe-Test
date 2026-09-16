@@ -25,10 +25,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build and Test
-        run: ./gradlew clean test jacocoTestReport
+        run: ./gradlew clean test jacocoTestReport --info
 
       - name: Check JaCoCo Report
-        run: find build -type f | sort
+        run: find . -type f | sort
 
       - name: Upload JaCoCo Report
         uses: actions/upload-artifact@v4
