@@ -27,8 +27,12 @@ jobs:
       - name: Build and Test
         run: ./gradlew clean test jacocoTestReport
 
+      - name: Check JaCoCo Report
+        run: ls -la build/reports/jacoco/test/html/
+
       - name: Upload JaCoCo Report
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-coverage-report
           path: build/reports/jacoco/test/html/
+          if-no-files-found: error
