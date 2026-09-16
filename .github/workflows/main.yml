@@ -28,7 +28,7 @@ jobs:
         run: ./gradlew clean test jacocoTestReport
 
       - name: Check JaCoCo Report
-        run: ls -la build/reports/jacoco/test/html/
+        run: find build -type f | sort
 
       - name: Upload JaCoCo Report
         uses: actions/upload-artifact@v4
