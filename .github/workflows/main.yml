@@ -22,11 +22,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker image
-        run: docker build -t ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest .
-
       - name: Run Tests and JaCoCo
         run: docker run --name tictactoe-test ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest ./gradlew clean test jacocoTestReport
+
+      - name: Build Docker image
+        run: docker build -t ghcr.io/sergiomasegosa11/tictactoe-test:latest .
+
+      - name: Run Tests and JaCoCo
+        run: docker run --name tictactoe-test ghcr.io/sergiomasegosa11/tictactoe-test:latest ./gradlew clean test jacocoTestReport
 
       - name: Copy JaCoCo report
         run: docker cp tictactoe-test:/workspace/build/reports/jacoco/test/html ./jacoco-report
@@ -39,6 +42,9 @@ jobs:
         with:
           name: jacoco-coverage-report
           path: jacoco-report/
+
+      - name: Push Docker image
+        run: docker push ghcr.io/sergiomasegosa11/tictactoe-test:latest
 
       - name: Push Docker image
         run: docker push ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest
