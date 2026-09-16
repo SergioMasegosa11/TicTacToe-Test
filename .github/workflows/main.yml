@@ -23,19 +23,22 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Docker image
-        run: |
-          docker build \
-            -t ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest \
+        run: docker build -t ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest .
 
-            .
+      - name: Run Tests and JaCoCo
+        run: docker run --name tictactoe-test ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest ./gradlew clean test jacocoTestReport
 
-      - name: Run Tests
-        run: |
-          docker run --rm ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest \
+      - name: Copy JaCoCo report
+        run: docker cp tictactoe-test:/workspace/build/reports/jacoco/test/html ./jacoco-report
 
-            ./gradlew clean test
+      - name: Remove test container
+        run: docker rm tictactoe-test
+
+      - name: Upload JaCoCo report
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage-report
+          path: jacoco-report/
 
       - name: Push Docker image
-        run: |
-          docker push ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest
-
+        run: docker push ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest

@@ -54,12 +54,6 @@ static Stream<Arguments> drawBoards() {
                     Stone.CIRCLE, Stone.CROSS, Stone.CIRCLE,
                     Stone.CIRCLE, Stone.CROSS, Stone.CROSS,
                     Stone.CROSS, Stone.CIRCLE, Stone.CROSS
-            )),
-
-            Arguments.of((Object) board(
-                    Stone.CROSS, Stone.CROSS, Stone.CIRCLE,
-                    Stone.CIRCLE, Stone.CIRCLE, Stone.CROSS,
-                    Stone.CIRCLE, Stone.CROSS, Stone.CROSS
             ))
     );
 }
