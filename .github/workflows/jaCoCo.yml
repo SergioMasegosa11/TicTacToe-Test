@@ -1,0 +1,41 @@
+name: JaCoCo
+ 
+on:
+  push:
+ 
+permissions:
+  contents: read
+ 
+jobs:
+  test:
+    runs-on: ubuntu-latest
+ 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+ 
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+ 
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+ 
+      - name: Run Tests and generate JaCoCo report
+        run: ./gradlew clean test jacocoTestReport
+ 
+      - name: Upload JaCoCo report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-coverage-report
+          path: build/reports/jacoco/test/html/
+ 
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: build/reports/tests/test/

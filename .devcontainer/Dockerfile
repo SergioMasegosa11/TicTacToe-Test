@@ -1,4 +1,4 @@
-FROM eclipse-temurin:25-jdk-alpine
+FROM alpine:latest
 
 # Java 25, Gradle und benötigte Tools installieren
 RUN apk add --no-cache \

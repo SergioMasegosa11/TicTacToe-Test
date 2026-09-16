@@ -1,55 +1,37 @@
-name: CI/CD
-
+name: Docker Build & Push
+ 
 on:
   push:
-
+ 
 permissions:
   contents: read
   packages: write
-
+ 
 jobs:
-  build-and-test:
+  build-and-push:
     runs-on: ubuntu-latest
-
+ 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+ 
       - name: Set lowercase repository owner
         run: |
           echo "OWNER_LOWER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
-
+ 
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
+ 
       - name: Build Docker image
         run: |
           docker build \
             -f .devcontainer/Dockerfile \
             -t ghcr.io/${OWNER_LOWER}/tictactoe-test:latest \
             .
-
-      - name: Run Tests and JaCoCo
-        run: |
-          docker run --name tictactoe-test \
-            ghcr.io/${OWNER_LOWER}/tictactoe-test:latest \
-            ./gradlew clean test jacocoTestReport
-
-      - name: Copy JaCoCo report
-        run: docker cp tictactoe-test:/workspace/build/reports/jacoco/test/html ./jacoco-report
-
-      - name: Remove test container
-        run: docker rm tictactoe-test
-
-      - name: Upload JaCoCo report
-        uses: actions/upload-artifact@v4
-        with:
-          name: jacoco-coverage-report
-          path: jacoco-report/
-
+ 
       - name: Push Docker image
         run: docker push ghcr.io/${OWNER_LOWER}/tictactoe-test:latest
