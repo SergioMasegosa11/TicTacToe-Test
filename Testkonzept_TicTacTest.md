@@ -115,6 +115,6 @@ Diese Bereiche sind deshalb nicht Bestandteil des aktuellen Testumfangs.
 
 
 
-## 7. Feedback von Auditor
+## 7. Feedback von Auditor(Cristian)
 Grundsätzlich alles Gut eventuell mehr Tests schreiben, ansonsten alles gut erklärt und es ist übersichtlich.
 Erhaltene Note: 5.5
