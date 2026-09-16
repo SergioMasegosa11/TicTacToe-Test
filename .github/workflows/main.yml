@@ -29,6 +29,7 @@ jobs:
       - name: Build Docker image
         run: |
           docker build \
+            -f .devcontainer/Dockerfile \
             -t ghcr.io/${OWNER_LOWER}/tictactoe-test:latest \
             .
 
