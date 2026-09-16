@@ -112,3 +112,8 @@ Im vorhandenen Testcode werden derzeit keine Tests für folgende Bereiche durchg
 - kompletter Spielablauf
 
 Diese Bereiche sind deshalb nicht Bestandteil des aktuellen Testumfangs.
+
+
+
+## 7. Feedback von Auditor
+Grundsätzlich alles Gut eventuell mehr Tests schreiben, ansonsten alles gut erklärt und es ist übersichtlich.
