@@ -10,10 +10,21 @@ on:
 permissions:
   contents: read
   pull-requests: write # fuer den PR-Kommentar (Bonus)
+  packages: read # zum Pullen des DevContainer-Images aus der GHCR
 
 jobs:
+  devcontainer:
+    uses: ./.github/workflows/devcontainer-image.yml
+
   gate:
+    needs: devcontainer
     runs-on: ubuntu-latest
+    # Laeuft im eigenen DevContainer-Image (Java 25 + Gradle) aus der GHCR
+    container:
+      image: ${{ needs.devcontainer.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout Branch
@@ -25,11 +36,10 @@ jobs:
           ref: main
           path: main-branch
 
-      - name: Set up JDK 25
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '25'
+      # main wird mit der Daemon-JVM-Konfiguration des Branches gebaut,
+      # damit Gradle das JDK aus dem DevContainer verwendet (und kein eigenes herunterlaedt)
+      - name: Build-Umgebung fuer main angleichen
+        run: cp gradle/gradle-daemon-jvm.properties main-branch/gradle/gradle-daemon-jvm.properties
 
       # Coverage des Branches bzw. Pull Requests
       - name: Coverage des Branches

@@ -1,16 +1,21 @@
 {
     "name": "TicTacTest Dev Container",
-    "build": {
-        "dockerfile": "Dockerfile"
-    },
+    "image": "ghcr.io/sergiomasegosa11/tictactoe-test:v1.0.0",
     "remoteUser": "devuser",
+    "postCreateCommand": "chmod +x gradlew && ./gradlew --version",
 
     "customizations": {
         "vscode": {
             "extensions": [
                 "vscjava.vscode-java-pack",
-                "vscjava.vscode-gradle"
-            ]
+                "vscjava.vscode-gradle",
+                "github.vscode-github-actions",
+                "redhat.vscode-yaml"
+            ],
+            "settings": {
+                "java.jdt.ls.java.home": "/usr/lib/jvm/java-25-openjdk",
+                "java.import.gradle.wrapper.enabled": true
+            }
         }
     }
 }
