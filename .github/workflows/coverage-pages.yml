@@ -8,20 +8,25 @@ on:
 
 permissions:
   contents: write # zum Pushen auf den gh-pages-Branch
+  packages: read # zum Pullen des DevContainer-Images aus der GHCR
 
 jobs:
+  devcontainer:
+    uses: ./.github/workflows/devcontainer-image.yml
+
   coverage-pages:
+    needs: devcontainer
     runs-on: ubuntu-latest
+    # Laeuft im eigenen DevContainer-Image (Java 25 + Gradle) aus der GHCR
+    container:
+      image: ${{ needs.devcontainer.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '25'
 
       # Tests ausfuehren und JaCoCo-Report (HTML + XML) erzeugen
       - name: Run Tests and generate JaCoCo report

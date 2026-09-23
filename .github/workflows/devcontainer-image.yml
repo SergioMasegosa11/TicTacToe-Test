@@ -1,0 +1,29 @@
+name: DevContainer Image ermitteln
+
+# Wiederverwendbarer Workflow: liest das freigegebene DevContainer-Image aus
+# .devcontainer/devcontainer.json. So gibt es genau EINE Stelle mit der Version,
+# die lokal (VS Code) und in allen CI-Jobs verwendet wird.
+on:
+  workflow_call:
+    outputs:
+      image:
+        description: "Freigegebenes DevContainer-Image, z.B. ghcr.io/owner/tictactoe-test:v1.0.0"
+        value: ${{ jobs.resolve.outputs.image }}
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.read.outputs.image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Bricht ab, wenn kein freigegebenes vX.Y.Z-Image eingetragen ist (z.B. latest)
+      - name: Image lesen und pruefen
+        id: read
+        run: |
+          IMAGE=$(bash scripts/devcontainer-image.sh)
+          echo "DevContainer-Image: $IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"

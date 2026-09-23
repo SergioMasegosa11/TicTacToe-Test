@@ -1,0 +1,162 @@
+name: DevContainer Release
+
+# Baut, testet und veroeffentlicht das DevContainer-Image (siehe docs/devcontainer.md).
+# - Pull Request: nur bauen + testen + Versionsregeln pruefen (nichts wird veroeffentlicht)
+# - Push auf main: bauen + testen + als vX.Y.Z in die GHCR pushen
+#                  und automatisch einen PR erstellen, der die neue Version verwendet
+on:
+  pull_request:
+    paths:
+      - '.devcontainer/Dockerfile'
+      - '.devcontainer/VERSION'
+      - '.github/workflows/devcontainer-release.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.devcontainer/Dockerfile'
+      - '.devcontainer/VERSION'
+      - '.github/workflows/devcontainer-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write      # Branch fuer den Update-PR pushen
+  pull-requests: write # Update-PR erstellen
+  packages: write      # Image in die GHCR pushen
+  actions: write       # CI-Workflows auf dem Update-PR starten
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      HAS_PAT: ${{ secrets.DEVCONTAINER_PR_TOKEN != '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # fuer den Versionsvergleich mit main
+
+      # Version aus .devcontainer/VERSION lesen, muss SemVer (X.Y.Z) sein
+      - name: Version lesen
+        run: |
+          VERSION=$(tr -d ' \r\n' < .devcontainer/VERSION)
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::.devcontainer/VERSION muss im Format X.Y.Z sein, ist aber '$VERSION'"
+            exit 1
+          fi
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/$OWNER/tictactoe-test" >> "$GITHUB_ENV"
+
+      # Im PR muss die Version hoeher sein als auf main, sonst wuerde eine
+      # bestehende Version ueberschrieben
+      - name: Version wurde erhoeht (nur PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          BASE_VERSION=$(git show "origin/${{ github.base_ref }}:.devcontainer/VERSION" 2>/dev/null | tr -d ' \r\n' || true)
+          BASE_VERSION=${BASE_VERSION:-0.0.0}
+          HIGHEST=$(printf '%s\n%s\n' "$BASE_VERSION" "$VERSION" | sort -V | tail -1)
+          echo "main: $BASE_VERSION  |  PR: $VERSION"
+          if [ "$VERSION" = "$BASE_VERSION" ] || [ "$HIGHEST" != "$VERSION" ]; then
+            echo "::error::Das Dockerfile wurde geaendert: .devcontainer/VERSION muss hoeher sein als $BASE_VERSION"
+            exit 1
+          fi
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Veroeffentlichte Versionen sind unveraenderlich und werden nie ueberschrieben
+      - name: Pruefen ob Version schon veroeffentlicht ist
+        id: exists
+        run: |
+          if docker manifest inspect "$IMAGE:$TAG" > /dev/null 2>&1; then
+            echo "$IMAGE:$TAG existiert bereits und wird nicht ueberschrieben."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Image bauen
+        run: |
+          docker build \
+            -f .devcontainer/Dockerfile \
+            --label org.opencontainers.image.version="$VERSION" \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            -t "$IMAGE:$TAG" \
+            .devcontainer
+
+      # Freigabe-Bedingung 1: das neue Image muss die Anforderungen erfuellen
+      # und die Tests des Projekts ausfuehren koennen
+      - name: Image testen
+        run: |
+          docker run --rm "$IMAGE:$TAG" sh -c '
+            set -e
+            java -version
+            gradle --version
+            test "$(id -u devuser):$(id -g devuser)" = "1000:1000"
+          '
+          docker run --rm -v "$PWD:/src:ro" "$IMAGE:$TAG" sh -c '
+            set -e
+            cp -r /src /tmp/project && cd /tmp/project
+            chmod +x gradlew
+            ./gradlew test --no-daemon
+          '
+
+      # Nur auf main wird veroeffentlicht (also erst nach Review + Merge)
+      - name: Image veroeffentlichen
+        if: github.event_name != 'pull_request' && steps.exists.outputs.exists != 'true'
+        run: |
+          docker tag "$IMAGE:$TAG" "$IMAGE:latest"
+          docker tag "$IMAGE:$TAG" "$IMAGE:sha-${GITHUB_SHA::7}"
+          docker push "$IMAGE:$TAG"
+          docker push "$IMAGE:sha-${GITHUB_SHA::7}"
+          docker push "$IMAGE:latest"
+          echo "Veroeffentlicht: $IMAGE:$TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      # Einzige Stelle mit der verwendeten Version: .devcontainer/devcontainer.json
+      - name: devcontainer.json auf neue Version setzen
+        if: github.event_name != 'pull_request' && steps.exists.outputs.exists != 'true'
+        run: |
+          sed -i -E "s#(\"image\": *\"[^\"]*:)v[0-9]+\.[0-9]+\.[0-9]+\"#\1${TAG}\"#" .devcontainer/devcontainer.json
+          git diff
+
+      # Freigabe-Bedingung 2: Update-PR -> CI laeuft mit neuem Image -> Review -> Merge
+      - name: Update-PR erstellen
+        id: pr
+        if: github.event_name != 'pull_request' && steps.exists.outputs.exists != 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # Mit einem PAT (Secret DEVCONTAINER_PR_TOKEN) starten die PR-Workflows automatisch.
+          # Ohne PAT wird GITHUB_TOKEN verwendet und die CI unten per workflow_dispatch gestartet.
+          token: ${{ secrets.DEVCONTAINER_PR_TOKEN || secrets.GITHUB_TOKEN }}
+          branch: devcontainer/${{ env.TAG }}
+          add-paths: .devcontainer/devcontainer.json
+          commit-message: "DevContainer auf ${{ env.TAG }} aktualisieren"
+          title: "DevContainer auf ${{ env.TAG }} aktualisieren"
+          body: |
+            Automatisch erstellt vom Workflow **DevContainer Release**.
+
+            Neues Image: `${{ env.IMAGE }}:${{ env.TAG }}` (gebaut aus ${{ github.sha }})
+
+            Nach dem Merge verwenden
+            - alle CI-Jobs (JaCoCo, Coverage Gate, Coverage Time-Series) und
+            - alle lokalen DevContainer (nach `git pull` → *Rebuild Container*)
+
+            automatisch diese Version. Erst mit dem Merge ist die Version **freigegeben**.
+          delete-branch: true
+
+      # PRs, die mit GITHUB_TOKEN erstellt wurden, starten keine Workflows.
+      # workflow_dispatch ist davon ausgenommen, darum die CI hier explizit starten.
+      - name: CI auf dem Update-PR starten
+        if: steps.pr.outputs.pull-request-number != '' && env.HAS_PAT != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run jaCoCo.yml --ref "devcontainer/$TAG"
+          gh workflow run coverage-gate.yml --ref "devcontainer/$TAG"
+          echo "Update-PR: ${{ steps.pr.outputs.pull-request-url }}" >> "$GITHUB_STEP_SUMMARY"
