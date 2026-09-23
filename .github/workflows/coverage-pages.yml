@@ -31,7 +31,9 @@ jobs:
 
       # Aktuellen Coverage-Wert (Line-Coverage) aus dem XML lesen
       - name: Coverage-Wert bestimmen
-        run: echo "COVERAGE=$(bash scripts/coverage.sh)" >> "$GITHUB_ENV"
+        run: |
+          COVERAGE=$(bash scripts/coverage.sh)
+          echo "COVERAGE=$COVERAGE" >> "$GITHUB_ENV"
 
       # Bestehende Historie vom gh-pages-Branch holen (beim ersten Mal existiert er noch nicht)
       - name: Bisherige Historie holen

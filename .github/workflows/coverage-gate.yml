@@ -36,7 +36,8 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew clean test jacocoTestReport
-          echo "BRANCH_COV=$(bash scripts/coverage.sh)" >> "$GITHUB_ENV"
+          BRANCH_COV=$(bash scripts/coverage.sh)
+          echo "BRANCH_COV=$BRANCH_COV" >> "$GITHUB_ENV"
 
       # Coverage von main (Init-Script aktiviert JaCoCo auch falls main es noch nicht hat)
       - name: Coverage von main
@@ -44,7 +45,8 @@ jobs:
           cd main-branch
           chmod +x gradlew
           ./gradlew clean test jacocoTestReport --init-script ../scripts/jacoco-init.gradle
-          echo "MAIN_COV=$(bash ../scripts/coverage.sh build/reports/jacoco/test/jacocoTestReport.xml)" >> "$GITHUB_ENV"
+          MAIN_COV=$(bash ../scripts/coverage.sh build/reports/jacoco/test/jacocoTestReport.xml)
+          echo "MAIN_COV=$MAIN_COV" >> "$GITHUB_ENV"
 
       # Beide Werte vergleichen
       - name: Vergleichen
