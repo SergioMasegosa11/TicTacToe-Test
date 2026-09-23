@@ -3,6 +3,15 @@ plugins {
     id 'jacoco'
 }
 
+// Die Version steht in gradle.properties (version=X.Y.Z) und wird fuer JAR-Name und Manifest verwendet
+group = 'ch.bbw.m450'
+
+// Kompiliert wird mit Java 25, erzeugt wird Bytecode fuer Java 21,
+// damit das Release-JAR auch mit einer Java-21-Runtime startet
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+}
+
 repositories {
     mavenCentral()
 }
@@ -16,6 +25,18 @@ dependencies {
 test {
     useJUnitPlatform()
     finalizedBy jacocoTestReport // Report immer nach den Tests erzeugen
+}
+
+// Ausfuehrbares JAR: build/libs/tictactest-<version>.jar, startbar mit "java -jar"
+jar {
+    archiveBaseName = 'tictactest'
+    manifest {
+        attributes(
+                'Main-Class': 'ch.bbw.m450.tictactoe.TicTacToeMain',
+                'Implementation-Title': 'TicTacTest',
+                'Implementation-Version': project.version
+        )
+    }
 }
 
 jacoco {
