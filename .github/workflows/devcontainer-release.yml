@@ -107,9 +107,10 @@ jobs:
             ./gradlew test --no-daemon
           '
 
-      # Nur auf main wird veroeffentlicht (also erst nach Review + Merge)
+      # Nur auf main wird veroeffentlicht (also erst nach Review + Merge),
+      # auch ein manueller Start auf einem anderen Branch pusht nichts
       - name: Image veroeffentlichen
-        if: github.event_name != 'pull_request' && steps.exists.outputs.exists != 'true'
+        if: github.ref == 'refs/heads/main' && steps.exists.outputs.exists != 'true'
         run: |
           docker tag "$IMAGE:$TAG" "$IMAGE:latest"
           docker tag "$IMAGE:$TAG" "$IMAGE:sha-${GITHUB_SHA::7}"
@@ -120,7 +121,7 @@ jobs:
 
       # Einzige Stelle mit der verwendeten Version: .devcontainer/devcontainer.json
       - name: devcontainer.json auf neue Version setzen
-        if: github.event_name != 'pull_request' && steps.exists.outputs.exists != 'true'
+        if: github.ref == 'refs/heads/main' && steps.exists.outputs.exists != 'true'
         run: |
           sed -i -E "s#(\"image\": *\"[^\"]*:)v[0-9]+\.[0-9]+\.[0-9]+\"#\1${TAG}\"#" .devcontainer/devcontainer.json
           git diff
@@ -128,7 +129,7 @@ jobs:
       # Freigabe-Bedingung 2: Update-PR -> CI laeuft mit neuem Image -> Review -> Merge
       - name: Update-PR erstellen
         id: pr
-        if: github.event_name != 'pull_request' && steps.exists.outputs.exists != 'true'
+        if: github.ref == 'refs/heads/main' && steps.exists.outputs.exists != 'true'
         uses: peter-evans/create-pull-request@v7
         with:
           # Mit einem PAT (Secret DEVCONTAINER_PR_TOKEN) starten die PR-Workflows automatisch.
