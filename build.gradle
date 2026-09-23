@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'jacoco'
 }
 
 repositories {
@@ -14,4 +15,18 @@ dependencies {
 
 test {
     useJUnitPlatform()
+    finalizedBy jacocoTestReport // Report immer nach den Tests erzeugen
+}
+
+jacoco {
+    toolVersion = "0.8.14"
+}
+
+jacocoTestReport {
+    dependsOn test
+
+    reports {
+        xml.required.set(true)  // XML: wird von den Coverage-Workflows ausgelesen
+        html.required.set(true) // HTML: menschlich lesbarer Report
+    }
 }

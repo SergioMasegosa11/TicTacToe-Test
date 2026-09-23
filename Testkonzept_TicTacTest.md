@@ -91,12 +91,11 @@ Für CROSS und CIRCLE liefert `isWin()` jeweils `false`.
 | TC-08 | TZ-02 | `nobodyWins()` | Unentschieden ohne Gewinner | CROSS=`false`, CIRCLE=`false` |
 | TC-09 | TZ-02 | `nobodyWins()` | Unentschieden ohne Gewinner | CROSS=`false`, CIRCLE=`false` |
 | TC-10 | TZ-02 | `nobodyWins()` | Unentschieden ohne Gewinner | CROSS=`false`, CIRCLE=`false` |
-| TC-11 | TZ-02 | `nobodyWins()` | Unentschieden ohne Gewinner | CROSS=`false`, CIRCLE=`false` |
 
-Durch die parametrisierten Tests entstehen insgesamt **11 Testausführungen**:
+Durch die parametrisierten Tests entstehen insgesamt **10 Testausführungen**:
 
 - 6 Gewinnfälle
-- 5 Fälle ohne Gewinner
+- 4 Fälle ohne Gewinner
 
 ## 6. Aktueller Testumfang
 
@@ -112,3 +111,23 @@ Im vorhandenen Testcode werden derzeit keine Tests für folgende Bereiche durchg
 - kompletter Spielablauf
 
 Diese Bereiche sind deshalb nicht Bestandteil des aktuellen Testumfangs.
+
+
+
+## 7. Test Coverage (JaCoCo)
+
+Die Test Coverage wird mit **JaCoCo** gemessen (`./gradlew test jacocoTestReport`).
+
+| Workflow | Auslöser | Zweck |
+|---|---|---|
+| `jaCoCo.yml` | jeder Push (alle Branches) | Tests + HTML-Coverage-Report als GitHub Actions Artifact |
+| `coverage-pages.yml` | Push auf `main` | Coverage-Wert zur Historie hinzufügen, Time-Series auf GitHub Pages |
+| `coverage-gate.yml` | Pull Request / manuell | Branch-Coverage darf nicht tiefer sein als `main` (PASS/FAIL + PR-Kommentar) |
+
+Gemessen wird die **Line-Coverage**. Details zum Design: [docs/coverage-design.md](docs/coverage-design.md).
+
+Time-Series: https://sergiomasegosa11.github.io/TicTacToe-Test/
+
+## 8. Feedback von Auditor(Cristian)
+Grundsätzlich alles Gut eventuell mehr Tests schreiben, ansonsten alles gut erklärt und es ist übersichtlich.
+Erhaltene Note: 5.5

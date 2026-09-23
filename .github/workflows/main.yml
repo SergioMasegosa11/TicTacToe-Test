@@ -1,41 +1,40 @@
-name: CI/CD
-
+name: Docker Build & Push
+ 
 on:
   push:
-
+ 
 permissions:
   contents: read
   packages: write
-
+ 
 jobs:
-  build-and-test:
+  build-and-push:
     runs-on: ubuntu-latest
-
+ 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+ 
+        #Lowercase the repository owner to avoid issues with Docker image naming
+      - name: Set lowercase repository owner
+        run: |
+          echo "OWNER_LOWER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+ 
+      # Login to GitHub Container Registry (GHCR) to push the Docker image
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
+ 
+      # Build the Docker image using the Dockerfile in the .devcontainer directory and tag it
       - name: Build Docker image
         run: |
           docker build \
-            -t ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest \
-
+            -f .devcontainer/Dockerfile \
+            -t ghcr.io/${OWNER_LOWER}/tictactoe-test:latest \
             .
-
-      - name: Run Tests
-        run: |
-          docker run --rm ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest \
-
-            ./gradlew clean test
-
+      # Push the Docker image to GitHub Container Registry (GHCR)
       - name: Push Docker image
-        run: |
-          docker push ghcr.io/${{ github.repository_owner }}/tictactoe-test:latest
-
+        run: docker push ghcr.io/${OWNER_LOWER}/tictactoe-test:latest

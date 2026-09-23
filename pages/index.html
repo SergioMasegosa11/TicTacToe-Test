@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TicTacTest – Coverage Time-Series</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    body { font-family: sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1 { font-size: 1.4rem; }
+    .current { font-size: 1.1rem; margin-bottom: 1rem; }
+    table { border-collapse: collapse; margin-top: 1.5rem; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: .3rem .6rem; text-align: left; }
+    a { color: #1a7f5a; }
+  </style>
+</head>
+<body>
+  <h1>Test Coverage über die Zeit (main)</h1>
+  <p class="current" id="current"></p>
+  <canvas id="chart"></canvas>
+  <p>
+    <a href="report/index.html">Aktueller JaCoCo HTML-Report</a> ·
+    <a href="coverage-history.csv">coverage-history.csv</a>
+  </p>
+  <table id="table"><thead><tr><th>Datum</th><th>Commit</th><th>Coverage (%)</th></tr></thead><tbody></tbody></table>
+
+  <script>
+    // Die Historie liegt als CSV daneben und wird beim Laden geholt
+    fetch('coverage-history.csv')
+      .then(r => r.text())
+      .then(text => {
+        const rows = text.trim().split('\n').slice(1).map(r => r.split(',')); // Kopfzeile weg
+        const labels = rows.map(([datum, commit]) => datum + ' (' + commit + ')');
+        const values = rows.map(([, , coverage]) => parseFloat(coverage));
+
+        if (values.length) {
+          document.getElementById('current').textContent =
+            'Aktuelle Line-Coverage: ' + values[values.length - 1].toFixed(1) + ' %';
+        }
+
+        const tbody = document.querySelector('#table tbody');
+        for (const [datum, commit, coverage] of [...rows].reverse()) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td>' + datum + '</td><td><code>' + commit + '</code></td><td>' + coverage + '</td>';
+          tbody.appendChild(tr);
+        }
+
+        new Chart(document.getElementById('chart'), {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{ label: 'Line-Coverage %', data: values, borderColor: '#1a7f5a', fill: false, tension: 0.1 }]
+          },
+          options: {
+            scales: { y: { min: 0, max: 100, title: { display: true, text: 'Coverage %' } } }
+          }
+        });
+      });
+  </script>
+</body>
+</html>
