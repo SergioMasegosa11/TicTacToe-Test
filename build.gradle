@@ -15,6 +15,7 @@ dependencies {
 
 test {
     useJUnitPlatform()
+    finalizedBy jacocoTestReport // Report immer nach den Tests erzeugen
 }
 
 jacoco {
@@ -25,6 +26,7 @@ jacocoTestReport {
     dependsOn test
 
     reports {
-        html.required.set(true)
+        xml.required.set(true)  // XML: wird von den Coverage-Workflows ausgelesen
+        html.required.set(true) // HTML: menschlich lesbarer Report
     }
 }

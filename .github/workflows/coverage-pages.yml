@@ -1,0 +1,64 @@
+name: Coverage Time-Series
+
+# Nur auf main: Coverage messen, zur Historie hinzufuegen und auf GitHub Pages veroeffentlichen.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # zum Pushen auf den gh-pages-Branch
+
+jobs:
+  coverage-pages:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      # Tests ausfuehren und JaCoCo-Report (HTML + XML) erzeugen
+      - name: Run Tests and generate JaCoCo report
+        run: |
+          chmod +x gradlew
+          ./gradlew clean test jacocoTestReport
+
+      # Aktuellen Coverage-Wert (Line-Coverage) aus dem XML lesen
+      - name: Coverage-Wert bestimmen
+        run: echo "COVERAGE=$(bash scripts/coverage.sh)" >> "$GITHUB_ENV"
+
+      # Bestehende Historie vom gh-pages-Branch holen (beim ersten Mal existiert er noch nicht)
+      - name: Bisherige Historie holen
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      # Seite zusammenstellen: index.html + CSV mit neuer Zeile + aktueller HTML-Report
+      - name: Seite zusammenstellen
+        run: |
+          mkdir -p site
+          cp pages/index.html site/index.html
+          if [ -f gh-pages/coverage-history.csv ]; then
+            cp gh-pages/coverage-history.csv site/coverage-history.csv
+          else
+            echo "Datum,Commit,Coverage" > site/coverage-history.csv
+          fi
+          echo "$(date +%F),${GITHUB_SHA:0:7},${COVERAGE}" >> site/coverage-history.csv
+          cp -r build/reports/jacoco/test/html site/report
+          echo "Coverage: ${COVERAGE} %" >> "$GITHUB_STEP_SUMMARY"
+
+      # site/ als gh-pages-Branch veroeffentlichen
+      - name: Auf gh-pages veroeffentlichen
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: site
+          commit-message: "coverage: ${{ env.COVERAGE }}% (${{ github.sha }})"
