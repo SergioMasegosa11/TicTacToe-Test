@@ -131,3 +131,5 @@ Time-Series: https://sergiomasegosa11.github.io/TicTacToe-Test/
 ## 8. Feedback von Auditor(Cristian)
 Grundsätzlich alles Gut eventuell mehr Tests schreiben, ansonsten alles gut erklärt und es ist übersichtlich.
 Erhaltene Note: 5.5
+
+Das Coverage Gate wird bei jedem Pull Request automatisch ausgeführt.
