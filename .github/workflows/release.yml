@@ -1,0 +1,109 @@
+name: Release
+
+# Erstellt einen GitHub Release mit ausfuehrbarem JAR (siehe RELEASE.md).
+# Startet NUR bei einem Release-Tag (v1.0.0, v1.1.0, ...), nie bei einem normalen Push auf main.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Bestehender Release-Tag, z.B. v1.0.0"
+        required: true
+
+permissions:
+  contents: write # zum Erstellen des GitHub Releases
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0 # fuer die Pruefung, ob der Commit auf main liegt
+
+      - name: Java installieren
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      # Bedingungen fuer einen Release pruefen (siehe RELEASE.md, "Bedingungen")
+      - name: Release-Bedingungen pruefen
+        run: |
+          COMMIT=$(git rev-parse HEAD)
+          VERSION=$(grep -E '^version=' gradle.properties | cut -d= -f2 | tr -d ' \r')
+          echo "Tag: $TAG | Commit: $COMMIT | gradle.properties: $VERSION"
+
+          # 1. Tag muss zur Version im Projekt passen
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::Tag $TAG passt nicht zu version=$VERSION in gradle.properties"
+            exit 1
+          fi
+
+          # 2. Der Commit muss auf main liegen (keine Releases von Feature-Branches)
+          git fetch -q origin main
+          if ! git merge-base --is-ancestor "$COMMIT" origin/main; then
+            echo "::error::Commit $COMMIT ist nicht auf main"
+            exit 1
+          fi
+
+          # 3. Das Changelog muss einen Eintrag fuer die Version haben
+          bash scripts/changelog-section.sh "$VERSION" > changelog-section.md
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "COMMIT=$COMMIT" >> "$GITHUB_ENV"
+          echo "JAR=build/libs/tictactest-$VERSION.jar" >> "$GITHUB_ENV"
+
+      - name: Automatisierte Tests ausfuehren
+        run: |
+          chmod +x gradlew
+          ./gradlew clean test
+
+      - name: Projekt bauen und ausfuehrbares JAR erzeugen
+        run: ./gradlew build
+
+      # Das fertige JAR wird wie beim Benutzer mit "java -jar" gestartet und gespielt
+      - name: JAR starten und testen
+        run: |
+          OUTPUT=$(printf '3\n4\n5\n' | java -jar "$JAR")
+          echo "$OUTPUT" | tail -4
+          echo "$OUTPUT" | grep -q "the winner is: CROSS"
+
+      - name: SHA-256-Pruefsumme erstellen
+        run: |
+          cd build/libs
+          sha256sum "tictactest-$VERSION.jar" > "tictactest-$VERSION.jar.sha256"
+          cat "tictactest-$VERSION.jar.sha256"
+
+      - name: Release-Notes zusammenstellen
+        run: |
+          {
+            echo "Release: TicTacTest $TAG"
+            echo
+            echo "**Tag:** \`$TAG\`  "
+            echo "**Commit:** $COMMIT  "
+            echo "**Artefakt:** \`tictactest-$VERSION.jar\` (Start: \`java -jar tictactest-$VERSION.jar\`, ab Java 21)"
+            echo
+            echo "## Änderungen"
+            echo
+            cat changelog-section.md
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: GitHub Release erstellen und JAR anhaengen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            "$JAR" \
+            "$JAR.sha256" \
+            --title "TicTacTest $TAG" \
+            --notes-file release-notes.md \
+            --verify-tag
