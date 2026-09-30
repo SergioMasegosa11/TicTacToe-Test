@@ -69,10 +69,11 @@ jobs:
       - name: Projekt bauen und ausfuehrbares JAR erzeugen
         run: ./gradlew build
 
-      # Das fertige JAR wird wie beim Benutzer mit "java -jar" gestartet und gespielt
+      # Das fertige JAR wird wie beim Benutzer mit "java -jar" gestartet und gespielt.
+      # Der Computer-Gegner spielt zufaellig; mit festem Seed 3 gewinnt X mit 3, 4, 5 immer.
       - name: JAR starten und testen
         run: |
-          OUTPUT=$(printf '3\n4\n5\n' | java -jar "$JAR")
+          OUTPUT=$(printf '3\n4\n5\n' | java -Dtictactest.seed=3 -jar "$JAR")
           echo "$OUTPUT" | tail -4
           echo "$OUTPUT" | grep -q "the winner is: CROSS"
 
