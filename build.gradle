@@ -8,15 +8,43 @@ repositories {
     mavenCentral()
 }
 
+// End-to-End-Tests liegen getrennt von den Unit-Tests in src/e2eTest/java
+sourceSets {
+    e2eTest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+configurations {
+    e2eTestImplementation.extendsFrom testImplementation
+    e2eTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
 dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.12.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testImplementation 'org.assertj:assertj-core:3.27.3'
+    e2eTestImplementation 'org.junit-pioneer:junit-pioneer:2.3.0' // @StdIo, @CartesianTest, @Issue
 }
 
 test {
     useJUnitPlatform()
     finalizedBy jacocoTestReport // Report immer nach den Tests erzeugen
+}
+
+// Eigener Task fuer die E2E-Tests: ./gradlew e2eTest (laeuft auch bei ./gradlew check / build)
+tasks.register('e2eTest', Test) {
+    description = 'Fuehrt die End-to-End-Tests (kompletter Spielablauf ueber stdin/stdout) aus.'
+    group = 'verification'
+    testClassesDirs = sourceSets.e2eTest.output.classesDirs
+    classpath = sourceSets.e2eTest.runtimeClasspath
+    useJUnitPlatform()
+    shouldRunAfter test
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('e2eTest')
 }
 
 jacoco {
