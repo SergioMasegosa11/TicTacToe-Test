@@ -25,7 +25,7 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.12.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testImplementation 'org.assertj:assertj-core:3.27.3'
-    e2eTestImplementation 'org.junit-pioneer:junit-pioneer:2.3.0' // @StdIo, @CartesianTest, @Issue
+    testImplementation 'org.junit-pioneer:junit-pioneer:2.3.0' // @StdIo, @CartesianTest, @Issue, @SetSystemProperty (auch fuer e2eTest)
 }
 
 test {

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Arrays;
+import java.util.Random;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,8 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junitpioneer.jupiter.ClearSystemProperty;
+import org.junitpioneer.jupiter.SetSystemProperty;
 
 import ch.bbw.m450.tictactoe.TicTacToePlayer.Stone;
 import ch.bbw.m450.tictactoe.TicTacToeTestHelpers.CheatingPlayer;
@@ -257,13 +260,33 @@ class TicTacToeMainTest extends TicTacToeTestFixtures {
     // ---------- main ----------
 
     @Test
-    void mainPlaysHumanAgainstGreedy() {
-        // Mensch (X) spielt 3, 4, 5; Greedy (O) nimmt 0, 1 -> X gewinnt die mittlere Reihe
+    @SetSystemProperty(key = TicTacToeMain.SEED_PROPERTY, value = "3")
+    void mainPlaysHumanAgainstRandomComputer() {
+        // mit Seed 3 spielt der Computer (O) die Felder 6 und 2 -> X gewinnt die mittlere Reihe
         givenInput("3\n4\n5\n");
 
         TicTacToeMain.main(new String[0]);
 
+        assertThat(output()).endsWith("...and the winner is: CROSS" + System.lineSeparator());
         assertThat(new TicTacToeMain()).isNotNull();
+    }
+
+    @Test
+    @SetSystemProperty(key = TicTacToeMain.SEED_PROPERTY, value = "123")
+    void randomUsesSeedFromSystemProperty() {
+        var expected = new Random(123);
+
+        assertThat(TicTacToeMain.random().ints(10, 0, 9)).containsExactlyElementsOf(expected.ints(10, 0, 9).boxed().toList());
+    }
+
+    @Test
+    @ClearSystemProperty(key = TicTacToeMain.SEED_PROPERTY)
+    void randomWithoutSeedIsNotReproducible() {
+        // ohne Seed muessen zwei Spiele (praktisch sicher) verschiedene Zufallszahlen haben
+        var first = TicTacToeMain.random().ints(20, 0, 9).boxed().toList();
+        var second = TicTacToeMain.random().ints(20, 0, 9).boxed().toList();
+
+        assertThat(first).isNotEqualTo(second);
     }
 
     @Test

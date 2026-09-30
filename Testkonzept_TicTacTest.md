@@ -147,7 +147,7 @@ spielt: von der ersten Eingabe bis zum Resultat. Getestet wird über den echten 
 `TicTacToeMain.main()`, mit Eingaben über `System.in` und Prüfung der Ausgabe auf `System.out`.
 
 - **Spieler X:** der Mensch (`HumanPlayer`, liest von der Tastatur)
-- **Spieler O:** der Computer (`GreedyPlayer`, nimmt immer das tiefste freie Feld)
+- **Spieler O:** der Computer (`RandomPlayer`, wählt ein zufälliges freies Feld; bis BUG-06 war es der `GreedyPlayer`, der immer das tiefste freie Feld nahm)
 
 Getestet werden vier Bereiche:
 
@@ -167,6 +167,7 @@ Getestet werden vier Bereiche:
 | JUnit Pioneer `@StdIo` + `StdOut` | ersetzt `System.in` durch feste Eingabezeilen und schneidet `System.out` mit |
 | JUnit Pioneer `@CartesianTest` | kombiniert z.B. jede ungültige Eingabe mit jedem Zeitpunkt im Spiel (vor Zug 1, 2 oder 3) |
 | JUnit Pioneer `@Issue` | verknüpft einen Test mit dem gefundenen Fehler (BUG-xx, siehe 9.4) |
+| JUnit Pioneer `@SetSystemProperty` | setzt `tictactest.seed=3` für die ganze Testklasse: Der zufällige Gegner spielt dadurch in jedem Lauf gleich, die Tests sind reproduzierbar |
 | Timeouts | `@Timeout(5 s, threadMode = SEPARATE_THREAD)` auf der ganzen Klasse: Jeder Test läuft in einem eigenen Thread. Hängt das Spiel (Endlosschleife, blockierendes Lesen), schlägt der Test nach 5 s fehl, statt den Build zu blockieren. Zusätzlich `timeout-minutes: 10` im CI-Job |
 | Helper `GameRunner` | für Eingaben, die sich nicht als Konstante in `@StdIo` angeben lassen, z.B. ein endloser Eingabe-Stream |
 
@@ -181,9 +182,11 @@ worden (X gewinnt).
 | ID | Testfall | Eingabe | Erwartet | Vorher | Nachher |
 |---|---|---|---|---|---|
 | E2E-01 | X gewinnt | `3, 4, 5` | `...and the winner is: CROSS`, 3 Eingabeaufforderungen | wie erwartet | ✅ |
-| E2E-02 | O gewinnt | `3, 4, 6` | `...and the winner is: CIRCLE` | wie erwartet | ✅ |
-| E2E-03 | Unentschieden | `1, 3, 4, 6, 8` | `it's a draw!` nach 9 Zügen | wie erwartet | ✅ |
+| E2E-02 | O gewinnt | `0, 1, 3` (Seed 3) | `...and the winner is: CIRCLE` | wie erwartet | ✅ |
+| E2E-03 | Unentschieden | `0, 2, 3, 5, 7` (Seed 3) | `it's a draw!` nach 9 Zügen | wie erwartet | ✅ |
 | E2E-04 | Eingabeaufforderung | `3, 4, 5` | Board wird angezeigt, Text `where to put the next CROSS? (0-8):` | Tippfehler `where to to put` (BUG-05) | ✅ |
+| E2E-05 | O spielt zufällig | 20 Spiele mit verschiedenen Seeds, X spielt `4` | O wählt verschiedene freie Felder (mind. 4 verschiedene erste Züge), nie ein besetztes | O spielte **immer Feld 0**, danach 1, 2, … (BUG-06) | ✅ |
+| E2E-06 | echtes Zufallsspiel ohne Seed | X probiert `0` bis `8` der Reihe nach | Spiel endet mit Sieg oder Unentschieden, kein Abbruch | – (neu) | ✅ |
 
 #### Ungültige Eingaben
 
@@ -193,7 +196,7 @@ worden (X gewinnt).
 | E2E-10 | leere Eingabe | ``, `   ` | wie oben | `NumberFormatException`, Absturz (BUG-01) | ✅ |
 | E2E-10 | ausserhalb des Feldes | `9`, `-1`, `100` | wie oben | `IllegalStateException: cannot play to position 9`, Absturz (BUG-01) | ✅ |
 | E2E-10 | Kommazahl, Überlauf | `4.5`, `99999999999` | wie oben | `NumberFormatException`, Absturz (BUG-01) | ✅ |
-| E2E-11 | besetztes Feld | `3`, dann `3` und `0` | 2× Meldung, Spiel geht weiter | `IllegalStateException: cannot play to position 3`, Absturz (BUG-01) | ✅ |
+| E2E-11 | besetztes Feld | `3`, dann `3` (eigenes) und `6` (von O, Seed 3) | klare Meldung `field 3 is already taken by CROSS, please choose a free field` bzw. `… by CIRCLE …`, Spiel geht weiter | `IllegalStateException: cannot play to position 3`, Absturz (BUG-01). Nach dem ersten Fix nur die allgemeine Meldung `invalid input …` (BUG-07) | ✅ |
 | E2E-12 | Leerzeichen/Tab um die Zahl | ` 3`, `4 `, `\t5` | wird als gültige Zahl akzeptiert | `NumberFormatException` bei ` 3`, Absturz (BUG-01) | ✅ |
 
 E2E-10 läuft als `@CartesianTest`: 9 ungültige Eingaben × 3 Zeitpunkte = 27 Testausführungen.
@@ -225,7 +228,7 @@ Spiel geht weiter.
 | E2E-34 | sehr lange Eingabe | 1 MB lange Zeile | schnell abgelehnt | Absturz, 1 MB Text im Stacktrace (BUG-01) | ✅ |
 
 **Resultat vor der Korrektur:** 3 von 47 Testausführungen grün (nur die gültigen Spielabläufe).
-**Resultat nach der Korrektur:** 47 von 47 grün, jede DoS-Prüfung dauert unter 0,1 s.
+**Resultat nach der Korrektur:** 47 von 47 grün (mit BUG-06/07 kamen E2E-05 und E2E-06 dazu: 49 von 49), jede DoS-Prüfung dauert unter 0,1 s.
 
 ### 9.4 Gefundene Fehler
 
@@ -236,6 +239,8 @@ Spiel geht weiter.
 | BUG-03 | Ende der Eingabe (EOF, z.B. Ctrl+D oder `< /dev/null`) führt zu `NoSuchElementException`. | mittel | `HumanPlayer` meldet das Ende der Eingabe. `main()` fängt den Abbruch ab und gibt `game aborted: no more input` aus. |
 | BUG-04 | Keine Begrenzung der Eingabe: Eine endlose Zeile ohne Zeilenende lässt den `Scanner` unbegrenzt Speicher belegen (Hänger/OutOfMemory). Endlos ungültige Eingaben würden nach einer naiven Korrektur zur Endlosschleife. | hoch (DoS) | Höchstens 10 ungültige Versuche (`MAX_ATTEMPTS`), danach `game aborted: too many invalid inputs`. Eine Zeile wird mit eigenem Lesen auf 17 Zeichen gekürzt, vom Rest werden höchstens 4096 Zeichen übersprungen (`MAX_LINE_LENGTH`, `MAX_SKIPPED`). |
 | BUG-05 | Tippfehler in der Eingabeaufforderung: `where to to put the next …` | tief | Text korrigiert: `where to put the next …` |
+| BUG-06 | Der Computer-Gegner ist vorhersehbar: Der `GreedyPlayer` nimmt immer das tiefste freie Feld (0, 1, 2, …). Man gewinnt mit immer denselben Zügen. | mittel | Neuer `RandomPlayer` wählt zufällig eines der freien Felder und ersetzt den `GreedyPlayer` im Spiel. Für reproduzierbare Tests kann der Zufall mit `-Dtictactest.seed=<zahl>` fest gestartet werden. |
+| BUG-07 | Bei einem bereits besetzten Feld kam nur die allgemeine Meldung `invalid input, please enter a free field (0-8)`. Der Spieler erfährt nicht, dass das Feld besetzt ist und von wem. | tief | Eigene Meldung `field 4 is already taken by CROSS, please choose a free field`. Die Feldnummer darf ausgegeben werden, weil sie vorher als genau eine Ziffer 0–8 geprüft wurde. |
 
 ### 9.5 Test-first
 

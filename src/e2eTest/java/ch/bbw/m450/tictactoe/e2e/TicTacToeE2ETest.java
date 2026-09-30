@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -13,7 +14,9 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.Timeout.ThreadMode;
+import org.junitpioneer.jupiter.ClearSystemProperty;
 import org.junitpioneer.jupiter.Issue;
+import org.junitpioneer.jupiter.SetSystemProperty;
 import org.junitpioneer.jupiter.StdIo;
 import org.junitpioneer.jupiter.StdOut;
 import org.junitpioneer.jupiter.cartesian.CartesianTest;
@@ -23,14 +26,19 @@ import ch.bbw.m450.tictactoe.TicTacToeMain;
 
 /**
  * End-to-End-Tests: das komplette Spiel wird wie von einem Benutzer gespielt.
- * Mensch (X, Eingabe ueber stdin) gegen GreedyPlayer (O, nimmt immer das tiefste freie Feld).
+ * Mensch (X, Eingabe ueber stdin) gegen RandomPlayer (O, waehlt ein zufaelliges freies Feld).
+ * Damit die Spiele reproduzierbar sind, wird der Zufall mit einem festen Seed gestartet
+ * (@SetSystemProperty): mit Seed 3 spielt O auf die Eingabe 3, 4 hin die Felder 6 und 2.
  * Die Test-IDs (E2E-xx) und gefundenen Fehler (BUG-xx) sind im Testkonzept dokumentiert.
  * <p>
  * Jeder Test laeuft in einem eigenen Thread mit Timeout: haengt das Spiel (z.B. Endlosschleife
  * oder blockierendes Lesen), schlaegt der Test fehl, statt den Build zu blockieren.
  */
 @Timeout(value = 5, unit = TimeUnit.SECONDS, threadMode = ThreadMode.SEPARATE_THREAD)
+@SetSystemProperty(key = TicTacToeMain.SEED_PROPERTY, value = TicTacToeE2ETest.SEED)
 class TicTacToeE2ETest {
+
+    static final String SEED = "3";
 
     private static final String PROMPT = "? (0-8): ";
     private static final String INVALID = "invalid input, please enter a free field (0-8)";
@@ -58,8 +66,8 @@ class TicTacToeE2ETest {
         }
 
         @Test
-        @DisplayName("E2E-02: O gewinnt mit der oberen Reihe")
-        @StdIo({"3", "4", "6"})
+        @DisplayName("E2E-02: O gewinnt")
+        @StdIo({"0", "1", "3"})
         void oWins(StdOut out) {
             TicTacToeMain.main(new String[0]);
 
@@ -68,7 +76,7 @@ class TicTacToeE2ETest {
 
         @Test
         @DisplayName("E2E-03: Unentschieden nach 9 Zuegen")
-        @StdIo({"1", "3", "4", "6", "8"})
+        @StdIo({"0", "2", "3", "5", "7"})
         void draw(StdOut out) {
             TicTacToeMain.main(new String[0]);
 
@@ -90,6 +98,53 @@ class TicTacToeE2ETest {
     }
 
     @Nested
+    @DisplayName("Zufaelliger Computer-Gegner")
+    class ZufaelligerGegner {
+
+        /** Feld, auf das O nach dem ersten Zug von X gespielt hat (aus dem zweiten angezeigten Board gelesen). */
+        private int firstMoveOfO(String output) {
+            var withoutColours = output.replaceAll("\033\\[[0-9;]*m", "");
+            var secondBoard = withoutColours.split("where to put the next CROSS\\? \\(0-8\\): ")[1];
+            var cells = List.of(secondBoard.strip().split("\\s+")).subList(0, 9);
+            return cells.indexOf("O");
+        }
+
+        @Test
+        @Issue("BUG-06")
+        @DisplayName("E2E-05: O waehlt zufaellige freie Felder statt immer das tiefste")
+        void computerPlaysRandomFreeFields() {
+            var firstMoves = new HashSet<Integer>();
+            try {
+                for (var game = 1; game <= 20; game++) {
+                    // weit auseinanderliegende Seeds, damit java.util.Random gut streut
+                    System.setProperty(TicTacToeMain.SEED_PROPERTY, String.valueOf(game * 1_000_003L));
+                    var output = GameRunner.play("4");
+
+                    var move = firstMoveOfO(output);
+                    assertThat(move).as("O darf nicht auf das besetzte Feld 4 spielen").isNotEqualTo(4).isBetween(0, 8);
+                    firstMoves.add(move);
+                }
+            } finally {
+                System.setProperty(TicTacToeMain.SEED_PROPERTY, SEED);
+            }
+
+            // frueher (GreedyPlayer) war der erste Zug von O immer Feld 0
+            assertThat(firstMoves).as("verschiedene erste Zuege von O").hasSizeGreaterThanOrEqualTo(4);
+        }
+
+        @Test
+        @ClearSystemProperty(key = TicTacToeMain.SEED_PROPERTY)
+        @DisplayName("E2E-06: ohne Seed laeuft ein echtes Zufallsspiel bis zum Ende")
+        void gameWithoutSeedEndsNormally() {
+            // X spielt alle Felder der Reihe nach, ungueltige (besetzte) Felder werden einfach abgelehnt
+            var output = GameRunner.play("0", "1", "2", "3", "4", "5", "6", "7", "8");
+
+            assertThat(output).containsAnyOf("...and the winner is: CROSS", "...and the winner is: CIRCLE", "it's a draw!");
+            assertThat(output).doesNotContain("game aborted");
+        }
+    }
+
+    @Nested
     @DisplayName("Ungueltige Eingaben")
     class UngueltigeEingaben {
 
@@ -105,15 +160,18 @@ class TicTacToeE2ETest {
         }
 
         @Test
-        @Issue("BUG-01")
-        @DisplayName("E2E-11: bereits besetztes Feld wird abgelehnt")
-        @StdIo({"3", "3", "0", "4", "5"})
+        @Issue("BUG-07")
+        @DisplayName("E2E-11: bereits besetztes Feld wird mit klarer Meldung abgelehnt")
+        @StdIo({"3", "3", "6", "4", "5"})
         void occupiedFieldIsRejected(StdOut out) {
-            // Feld 3 hat X selbst belegt, Feld 0 hat O belegt
+            // Feld 3 hat X selbst belegt, Feld 6 hat O (Seed 3) belegt
             TicTacToeMain.main(new String[0]);
 
-            assertThat(count(out.capturedString(), INVALID)).isEqualTo(2);
-            assertThat(out.capturedString()).endsWith(X_WINS + System.lineSeparator());
+            assertThat(out.capturedString())
+                    .contains("field 3 is already taken by CROSS, please choose a free field")
+                    .contains("field 6 is already taken by CIRCLE, please choose a free field")
+                    .doesNotContain(INVALID)
+                    .endsWith(X_WINS + System.lineSeparator());
         }
 
         @Test
