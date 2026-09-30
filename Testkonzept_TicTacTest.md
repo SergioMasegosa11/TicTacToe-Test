@@ -112,6 +112,10 @@ Im vorhandenen Testcode werden derzeit keine Tests für folgende Bereiche durchg
 
 Diese Bereiche sind deshalb nicht Bestandteil des aktuellen Testumfangs.
 
+> **Update:** Inzwischen werden diese Bereiche abgedeckt: durch die erweiterten Unit-Tests
+> (Line-Coverage 100 %, Mutation Score mit PIT siehe [docs/mutation-testing.md](docs/mutation-testing.md))
+> und durch die End-to-End-Tests in [Kapitel 9](#9-end-to-end-tests).
+
 
 
 ## 7. Test Coverage (JaCoCo)
@@ -133,3 +137,131 @@ Grundsätzlich alles Gut eventuell mehr Tests schreiben, ansonsten alles gut erk
 Erhaltene Note: 5.5
 
 Das Coverage Gate wird bei jedem Pull Request automatisch ausgeführt.
+
+## 9. End-to-End-Tests
+
+### 9.1 Ziel und Umfang
+
+Die End-to-End-Tests (E2E) spielen das komplette Spiel so, wie ein Benutzer es in der Konsole
+spielt: von der ersten Eingabe bis zum Resultat. Getestet wird über den echten Einstiegspunkt
+`TicTacToeMain.main()`, mit Eingaben über `System.in` und Prüfung der Ausgabe auf `System.out`.
+
+- **Spieler X:** der Mensch (`HumanPlayer`, liest von der Tastatur)
+- **Spieler O:** der Computer (`GreedyPlayer`, nimmt immer das tiefste freie Feld)
+
+Getestet werden vier Bereiche:
+
+1. kompletter Spielablauf (Sieg X, Sieg O, Unentschieden)
+2. ungültige Eingaben
+3. böswillige Eingaben
+4. Verhalten, das zu einem Denial of Service (DoS) führen kann
+
+### 9.2 Umsetzung
+
+| Thema | Umsetzung |
+|---|---|
+| Testklasse | [`src/e2eTest/java/.../e2e/TicTacToeE2ETest.java`](src/e2eTest/java/ch/bbw/m450/tictactoe/e2e/TicTacToeE2ETest.java) |
+| Eigenes Source-Set | `src/e2eTest/java`, getrennt von den Unit-Tests in `src/test/java` |
+| Gradle-Task | `./gradlew e2eTest` (läuft auch bei `./gradlew check` und `./gradlew build`) |
+| CI-Pipeline | [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml): bei jedem Push und Pull Request, im DevContainer-Image, Testreport als Artefakt `e2e-test-report` |
+| JUnit Pioneer `@StdIo` + `StdOut` | ersetzt `System.in` durch feste Eingabezeilen und schneidet `System.out` mit |
+| JUnit Pioneer `@CartesianTest` | kombiniert z.B. jede ungültige Eingabe mit jedem Zeitpunkt im Spiel (vor Zug 1, 2 oder 3) |
+| JUnit Pioneer `@Issue` | verknüpft einen Test mit dem gefundenen Fehler (BUG-xx, siehe 9.4) |
+| Timeouts | `@Timeout(5 s, threadMode = SEPARATE_THREAD)` auf der ganzen Klasse: Jeder Test läuft in einem eigenen Thread. Hängt das Spiel (Endlosschleife, blockierendes Lesen), schlägt der Test nach 5 s fehl, statt den Build zu blockieren. Zusätzlich `timeout-minutes: 10` im CI-Job |
+| Helper `GameRunner` | für Eingaben, die sich nicht als Konstante in `@StdIo` angeben lassen, z.B. ein endloser Eingabe-Stream |
+
+### 9.3 Testfälle
+
+„Vorher“ ist das tatsächliche Verhalten des ursprünglichen Codes, „Nachher“ das Verhalten nach
+den Korrekturen. Bei ungültigen Eingaben ist das Spiel danach jeweils mit `3, 4, 5` fortgesetzt
+worden (X gewinnt).
+
+#### Kompletter Spielablauf
+
+| ID | Testfall | Eingabe | Erwartet | Vorher | Nachher |
+|---|---|---|---|---|---|
+| E2E-01 | X gewinnt | `3, 4, 5` | `...and the winner is: CROSS`, 3 Eingabeaufforderungen | wie erwartet | ✅ |
+| E2E-02 | O gewinnt | `3, 4, 6` | `...and the winner is: CIRCLE` | wie erwartet | ✅ |
+| E2E-03 | Unentschieden | `1, 3, 4, 6, 8` | `it's a draw!` nach 9 Zügen | wie erwartet | ✅ |
+| E2E-04 | Eingabeaufforderung | `3, 4, 5` | Board wird angezeigt, Text `where to put the next CROSS? (0-8):` | Tippfehler `where to to put` (BUG-05) | ✅ |
+
+#### Ungültige Eingaben
+
+| ID | Testfall | Eingabe | Erwartet | Vorher | Nachher |
+|---|---|---|---|---|---|
+| E2E-10 | Text | `abc`, `vier` | Meldung `invalid input, please enter a free field (0-8)`, erneute Eingabe, Spiel geht weiter | `NumberFormatException`, Spiel stürzt ab (BUG-01) | ✅ |
+| E2E-10 | leere Eingabe | ``, `   ` | wie oben | `NumberFormatException`, Absturz (BUG-01) | ✅ |
+| E2E-10 | ausserhalb des Feldes | `9`, `-1`, `100` | wie oben | `IllegalStateException: cannot play to position 9`, Absturz (BUG-01) | ✅ |
+| E2E-10 | Kommazahl, Überlauf | `4.5`, `99999999999` | wie oben | `NumberFormatException`, Absturz (BUG-01) | ✅ |
+| E2E-11 | besetztes Feld | `3`, dann `3` und `0` | 2× Meldung, Spiel geht weiter | `IllegalStateException: cannot play to position 3`, Absturz (BUG-01) | ✅ |
+| E2E-12 | Leerzeichen/Tab um die Zahl | ` 3`, `4 `, `\t5` | wird als gültige Zahl akzeptiert | `NumberFormatException` bei ` 3`, Absturz (BUG-01) | ✅ |
+
+E2E-10 läuft als `@CartesianTest`: 9 ungültige Eingaben × 3 Zeitpunkte = 27 Testausführungen.
+
+#### Böswillige Eingaben
+
+Erwartet ist jeweils: Die Eingabe wird abgelehnt, **nicht** auf der Konsole ausgegeben, und das
+Spiel geht weiter.
+
+| ID | Eingabe | Gefahr | Vorher | Nachher |
+|---|---|---|---|---|
+| E2E-20 | `ESC[2J ESC[H` | Terminal-Injection: Bildschirm löschen | Absturz, die Escape-Sequenz steht im Stacktrace und wird vom Terminal ausgeführt (BUG-02) | ✅ |
+| E2E-20 | `ESC]0;hacked BEL` | Terminal-Injection: Fenstertitel ändern | wie oben (BUG-02) | ✅ |
+| E2E-20 | `%s%n%x` | Format-String | Absturz (BUG-01) | ✅ |
+| E2E-20 | `4\0 4` (Null-Byte) | Null-Byte-Injection | Absturz (BUG-01) | ✅ |
+| E2E-20 | `٤` (arabische Ziffer 4) | unerwartete Unicode-Ziffer | **als Feld 4 akzeptiert**, weil `Integer.parseInt` alle Unicode-Ziffern kennt (BUG-02) | ✅ |
+| E2E-20 | `+4`, `04` | alternative Zahlenformate | **als Feld 4 akzeptiert** (BUG-02) | ✅ |
+| E2E-20 | `4; rm -rf /` | Shell-Injection | Absturz (BUG-01) | ✅ |
+| E2E-20 | `${jndi:ldap://x/a}` | Log4Shell-Muster | Absturz, Eingabe im Stacktrace (BUG-01, BUG-02) | ✅ |
+
+#### Denial of Service
+
+| ID | Testfall | Eingabe | Erwartet | Vorher | Nachher |
+|---|---|---|---|---|---|
+| E2E-30 | keine Eingabe (EOF) | leerer Stream | Meldung `game aborted: no more input`, kein Absturz | `NoSuchElementException`, Absturz (BUG-03) | ✅ |
+| E2E-31 | Eingabe endet mitten im Spiel | `3, 4`, dann EOF | wie oben | `NoSuchElementException`, Absturz (BUG-03) | ✅ |
+| E2E-32 | endlos ungültige Eingaben | `x`, `x`, `x`, … (endlos) | nach 10 Versuchen `game aborted: too many invalid inputs` | Absturz beim 1. `x`. Nach einer naiven Korrektur („einfach erneut fragen“) wäre es eine **Endlosschleife** (BUG-04) | ✅ |
+| E2E-33 | endlose Zeile ohne Zeilenende | `999999…` (endlos) | Abbruch nach begrenzter Zeit, kein OutOfMemory | **Spiel hängt**: Der `Scanner` puffert die ganze Zeile, Test nach 5 s Timeout abgebrochen, auf Dauer OutOfMemory (BUG-04) | ✅ |
+| E2E-34 | sehr lange Eingabe | 1 MB lange Zeile | schnell abgelehnt | Absturz, 1 MB Text im Stacktrace (BUG-01) | ✅ |
+
+**Resultat vor der Korrektur:** 3 von 47 Testausführungen grün (nur die gültigen Spielabläufe).
+**Resultat nach der Korrektur:** 47 von 47 grün, jede DoS-Prüfung dauert unter 0,1 s.
+
+### 9.4 Gefundene Fehler
+
+| ID | Fehler | Schwere | Korrektur |
+|---|---|---|---|
+| BUG-01 | Jede ungültige Eingabe (Text, leer, ausserhalb 0–8, besetztes Feld, Leerzeichen) beendet das Spiel mit einer Exception und Stacktrace. | hoch | `HumanPlayer` prüft die Eingabe, meldet `invalid input, please enter a free field (0-8)` und fragt erneut. Führende und folgende Leerzeichen werden entfernt. |
+| BUG-02 | Die Eingabe wird ungefiltert verarbeitet: `+4`, `04` und Unicode-Ziffern wie `٤` werden als Zahl akzeptiert, und im Fehlerfall landet die Eingabe samt Terminal-Escape-Sequenzen im Stacktrace. | mittel | Erlaubt ist nur genau eine ASCII-Ziffer `[0-8]` (Regex). Die Eingabe wird nie auf der Konsole ausgegeben. |
+| BUG-03 | Ende der Eingabe (EOF, z.B. Ctrl+D oder `< /dev/null`) führt zu `NoSuchElementException`. | mittel | `HumanPlayer` meldet das Ende der Eingabe. `main()` fängt den Abbruch ab und gibt `game aborted: no more input` aus. |
+| BUG-04 | Keine Begrenzung der Eingabe: Eine endlose Zeile ohne Zeilenende lässt den `Scanner` unbegrenzt Speicher belegen (Hänger/OutOfMemory). Endlos ungültige Eingaben würden nach einer naiven Korrektur zur Endlosschleife. | hoch (DoS) | Höchstens 10 ungültige Versuche (`MAX_ATTEMPTS`), danach `game aborted: too many invalid inputs`. Eine Zeile wird mit eigenem Lesen auf 17 Zeichen gekürzt, vom Rest werden höchstens 4096 Zeichen übersprungen (`MAX_LINE_LENGTH`, `MAX_SKIPPED`). |
+| BUG-05 | Tippfehler in der Eingabeaufforderung: `where to to put the next …` | tief | Text korrigiert: `where to put the next …` |
+
+### 9.5 Test-first
+
+Alle Fehler wurden **test-first** behoben:
+
+1. Die E2E-Tests wurden zuerst geschrieben. Sie beschreiben das gewünschte Verhalten und wurden
+   gegen den unveränderten Code ausgeführt: **44 von 47 rot**. Das ist im Commit
+   *„E2E-Tests mit JUnit Pioneer (test-first, noch rot)“* festgehalten.
+2. Das tatsächliche Verhalten aus den Fehlermeldungen wurde in der Spalte „Vorher“ dokumentiert.
+3. Erst danach wurden `HumanPlayer` und `TicTacToeMain.main()` korrigiert, bis alle Tests grün
+   waren.
+4. Die bestehenden Unit-Tests in `HumanPlayerTest`, die das alte Verhalten (Exception) erwartet
+   hatten, wurden an das neue Verhalten angepasst und um Grenzwerttests ergänzt, z.B. genau
+   10 Versuche oder genau die maximale Zeilenlänge. So bleiben Line-Coverage (100 %) und
+   Mutation Score (99 %) hoch.
+
+**Hinweis zu PIT:** Ein überlebender Mutant ist *äquivalent*. In `HumanPlayer.readLine()` kann
+die gekürzte Zeile durch `""` ersetzt werden, ohne dass sich das Verhalten ändert, denn beides
+ist eine ungültige Eingabe. Solche Mutanten kann kein Test töten.
+
+### 9.6 Weitere Testfälle, die nicht automatisiert abgedeckt werden
+
+| Testfall | Warum nicht automatisiert |
+|---|---|
+| Farben und Fettschrift werden im echten Terminal richtig dargestellt (Windows-Konsole, PowerShell, Linux-Terminal, IntelliJ) | Die Darstellung der ANSI-Codes hängt vom Terminal ab. Geprüft werden kann nur, dass die Codes ausgegeben werden, nicht wie sie aussehen. |
+| Das Spiel ist verständlich und angenehm zu bedienen (Usability) | subjektiv, nur durch echte Benutzer beurteilbar |
+| Ctrl+C während der Eingabe beendet das Spiel sauber | Signale an den Prozess lassen sich in JUnit nicht realistisch auslösen |
+| Eingabe bleibt offen, aber der Benutzer tippt nie etwas | Das Spiel wartet absichtlich unbegrenzt auf den Menschen. Ein Test würde nur den Timeout prüfen, das ist gewolltes Verhalten und kein Fehler. |
+| Umlaute und Sonderzeichen in der Konsole (Zeichensatz der Windows-Konsole) | hängt von der Codepage des Systems ab (`chcp`) |

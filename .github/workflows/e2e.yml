@@ -1,0 +1,44 @@
+name: E2E-Tests
+
+# End-to-End-Tests (kompletter Spielablauf ueber stdin/stdout) mit JUnit Pioneer,
+# eigener Gradle-Task "e2eTest" (siehe Testkonzept_TicTacTest.md, Kapitel 9)
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read # zum Pullen des DevContainer-Images aus der GHCR
+
+jobs:
+  devcontainer:
+    uses: ./.github/workflows/devcontainer-image.yml
+
+  e2e:
+    needs: devcontainer
+    runs-on: ubuntu-latest
+    # Laeuft im eigenen DevContainer-Image (Java 25 + Gradle) aus der GHCR
+    container:
+      image: ${{ needs.devcontainer.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    timeout-minutes: 10 # zusaetzlicher Schutz, falls ein Test trotz Timeout haengt
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: E2E-Tests ausfuehren
+        run: |
+          chmod +x gradlew
+          ./gradlew e2eTest
+
+      - name: E2E-Testreport hochladen
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-report
+          path: build/reports/tests/e2eTest/
+          if-no-files-found: warn
