@@ -8,6 +8,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import ch.bbw.m450.tictactoe.TicTacToeMain;
 import ch.bbw.m450.tictactoe.TicTacToePlayer.Stone;
 import ch.bbw.m450.tictactoe.TicTacToeTestFixtures;
 
@@ -25,6 +26,19 @@ class HumanPlayerTest extends TicTacToeTestFixtures {
         var player = playerWithInput(move + "\n");
 
         assertThat(player.play(board, Stone.CROSS)).isEqualTo(move);
+    }
+
+    // Gefunden mit PIT: ohne diesen Test fiel das Entfernen der Eingabeaufforderung nicht auf
+    @ParameterizedTest(name = "fordert {0} mit Board zur Eingabe auf")
+    @EnumSource(Stone.class)
+    void promptsForMoveWithBoard(Stone color) {
+        var player = playerWithInput("4\n");
+
+        player.play(board, color);
+
+        assertThat(output()).isEqualTo(
+                TicTacToeMain.toString(board)
+                        + "where to to put the next " + color + "? (0-8): " + System.lineSeparator());
     }
 
     @Test

@@ -1,7 +1,9 @@
 package ch.bbw.m450.tictactoe;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
@@ -20,10 +22,18 @@ public abstract class TicTacToeTestFixtures {
 
     private InputStream originalIn;
 
+    private PrintStream originalOut;
+
+    private ByteArrayOutputStream capturedOut;
+
     @BeforeEach
     void setUpFixture() {
         board = TicTacToeTestHelpers.emptyBoard();
         originalIn = System.in;
+        // Konsolenausgabe mitschneiden, damit Tests sie pruefen koennen
+        originalOut = System.out;
+        capturedOut = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(capturedOut, true, StandardCharsets.UTF_8));
     }
 
     @AfterEach
@@ -31,6 +41,12 @@ public abstract class TicTacToeTestFixtures {
         Arrays.fill(board, null);
         board = null;
         System.setIn(originalIn);
+        System.setOut(originalOut);
+    }
+
+    /** Alles, was der Test bisher auf System.out ausgegeben hat. */
+    protected String output() {
+        return capturedOut.toString(StandardCharsets.UTF_8);
     }
 
     /** Ersetzt das Fixture-Board durch das angegebene Layout. */
