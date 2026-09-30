@@ -41,13 +41,18 @@ import ch.bbw.m450.tictactoe.TicTacToePlayer;
 <span class="fc" id="L41">				throw new IllegalStateException(&quot;no more input&quot;);</span>
 			}
 <span class="fc" id="L43">			var input = line.strip();</span>
-<span class="fc bfc" id="L44" title="All 4 branches covered.">			if (FIELD.matcher(input).matches() &amp;&amp; board[Integer.parseInt(input)] == null) {</span>
-<span class="fc" id="L45">				return Integer.parseInt(input);</span>
+<span class="fc bfc" id="L44" title="All 2 branches covered.">			if (!FIELD.matcher(input).matches()) {</span>
+				// the input itself is never printed, it could contain terminal escape sequences
+<span class="fc" id="L46">				System.out.println(&quot;invalid input, please enter a free field (0-8)&quot;);</span>
+<span class="fc bfc" id="L47" title="All 2 branches covered.">			} else if (board[Integer.parseInt(input)] != null) {</span>
+				// safe to print: the input is exactly one digit 0-8
+<span class="fc" id="L49">				System.out.println(&quot;field &quot; + input + &quot; is already taken by &quot; + board[Integer.parseInt(input)]</span>
+						+ &quot;, please choose a free field&quot;);
+			} else {
+<span class="fc" id="L52">				return Integer.parseInt(input);</span>
 			}
-			// the input itself is never printed, it could contain terminal escape sequences
-<span class="fc" id="L48">			System.out.println(&quot;invalid input, please enter a free field (0-8)&quot;);</span>
 		}
-<span class="fc" id="L50">		throw new IllegalStateException(&quot;too many invalid inputs&quot;);</span>
+<span class="fc" id="L55">		throw new IllegalStateException(&quot;too many invalid inputs&quot;);</span>
 	}
 
 	/**
@@ -59,25 +64,25 @@ import ch.bbw.m450.tictactoe.TicTacToePlayer;
 	 */
 	private String readLine() {
 		try {
-<span class="fc" id="L62">			var line = new StringBuilder();</span>
-<span class="fc" id="L63">			var skipped = 0;</span>
+<span class="fc" id="L67">			var line = new StringBuilder();</span>
+<span class="fc" id="L68">			var skipped = 0;</span>
 			int c;
-<span class="fc bfc" id="L65" title="All 2 branches covered.">			while ((c = in.read()) != -1) {</span>
-<span class="fc bfc" id="L66" title="All 2 branches covered.">				if (c == '\n') {</span>
-<span class="fc" id="L67">					return line.toString();</span>
+<span class="fc bfc" id="L70" title="All 2 branches covered.">			while ((c = in.read()) != -1) {</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">				if (c == '\n') {</span>
+<span class="fc" id="L72">					return line.toString();</span>
 				}
-<span class="fc bfc" id="L69" title="All 2 branches covered.">				if (c == '\r') {</span>
-<span class="fc" id="L70">					continue;</span>
+<span class="fc bfc" id="L74" title="All 2 branches covered.">				if (c == '\r') {</span>
+<span class="fc" id="L75">					continue;</span>
 				}
-<span class="fc bfc" id="L72" title="All 2 branches covered.">				if (line.length() &lt;= MAX_LINE_LENGTH) {</span>
-<span class="fc" id="L73">					line.append((char) c);</span>
-<span class="fc bfc" id="L74" title="All 2 branches covered.">				} else if (++skipped &gt;= MAX_SKIPPED) {</span>
-<span class="fc" id="L75">					return line.toString();</span>
+<span class="fc bfc" id="L77" title="All 2 branches covered.">				if (line.length() &lt;= MAX_LINE_LENGTH) {</span>
+<span class="fc" id="L78">					line.append((char) c);</span>
+<span class="fc bfc" id="L79" title="All 2 branches covered.">				} else if (++skipped &gt;= MAX_SKIPPED) {</span>
+<span class="fc" id="L80">					return line.toString();</span>
 				}
 			}
-<span class="fc bfc" id="L78" title="All 2 branches covered.">			return line.isEmpty() ? null : line.toString();</span>
-<span class="fc" id="L79">		} catch (IOException e) {</span>
-<span class="fc" id="L80">			throw new UncheckedIOException(e);</span>
+<span class="fc bfc" id="L83" title="All 2 branches covered.">			return line.isEmpty() ? null : line.toString();</span>
+<span class="fc" id="L84">		} catch (IOException e) {</span>
+<span class="fc" id="L85">			throw new UncheckedIOException(e);</span>
 		}
 	}
 }
