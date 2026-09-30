@@ -41,11 +41,16 @@ public class HumanPlayer implements TicTacToePlayer {
 				throw new IllegalStateException("no more input");
 			}
 			var input = line.strip();
-			if (FIELD.matcher(input).matches() && board[Integer.parseInt(input)] == null) {
+			if (!FIELD.matcher(input).matches()) {
+				// the input itself is never printed, it could contain terminal escape sequences
+				System.out.println("invalid input, please enter a free field (0-8)");
+			} else if (board[Integer.parseInt(input)] != null) {
+				// safe to print: the input is exactly one digit 0-8
+				System.out.println("field " + input + " is already taken by " + board[Integer.parseInt(input)]
+						+ ", please choose a free field");
+			} else {
 				return Integer.parseInt(input);
 			}
-			// the input itself is never printed, it could contain terminal escape sequences
-			System.out.println("invalid input, please enter a free field (0-8)");
 		}
 		throw new IllegalStateException("too many invalid inputs");
 	}

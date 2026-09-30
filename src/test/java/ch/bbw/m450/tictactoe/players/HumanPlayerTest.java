@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -74,13 +75,16 @@ class HumanPlayerTest extends TicTacToeTestFixtures {
         assertThat(countInvalid()).isEqualTo(1);
     }
 
-    @Test
-    void occupiedFieldIsAskedAgain() {
-        givenBoard("....X....");
-        var player = playerWithInput("4\n5\n");
+    @ParameterizedTest(name = "besetztes Feld {0} (von {1}) wird mit eigener Meldung abgelehnt")
+    @CsvSource({"4, CROSS", "0, CIRCLE", "8, CIRCLE"})
+    void occupiedFieldIsAskedAgainWithClearMessage(int field, Stone owner) {
+        board[field] = owner;
+        var player = playerWithInput(field + "\n5\n");
 
-        assertThat(player.play(board, Stone.CIRCLE)).isEqualTo(5);
-        assertThat(countInvalid()).isEqualTo(1);
+        assertThat(player.play(board, Stone.CROSS)).isEqualTo(5);
+        assertThat(output())
+                .contains("field " + field + " is already taken by " + owner + ", please choose a free field")
+                .doesNotContain(INVALID);
     }
 
     @ParameterizedTest(name = "Eingabe \"{0}\" mit Leerzeichen/Zeilenende wird akzeptiert")

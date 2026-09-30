@@ -1,25 +1,38 @@
 package ch.bbw.m450.tictactoe;
 
 import java.util.Arrays;
+import java.util.Random;
 
 import ch.bbw.m450.tictactoe.TicTacToePlayer.Stone;
-import ch.bbw.m450.tictactoe.players.GreedyPlayer;
 import ch.bbw.m450.tictactoe.players.HumanPlayer;
+import ch.bbw.m450.tictactoe.players.RandomPlayer;
 
 /**
- * A small tic-tac-toe board. Initially with a human and a primitive but valid computer player.
+ * A small tic-tac-toe board. A human (X) plays against a computer choosing random free fields (O).
  */
 public class TicTacToeMain {
 
 	public static final int BOARD_SIZE = 9;
 
+	/** system property with a fixed seed for the random computer player (only for tests and debugging) */
+	public static final String SEED_PROPERTY = "tictactest.seed";
+
 	public static void main(String[] args) {
 		try {
-			play(new HumanPlayer(), new GreedyPlayer());
+			play(new HumanPlayer(), new RandomPlayer(random()));
 		} catch (IllegalStateException e) {
 			// e.g. end of input or too many invalid inputs: end the game with a message instead of a stack trace
 			System.out.println("game aborted: " + e.getMessage());
 		}
+	}
+
+	/**
+	 * Random numbers for the computer player. With the system property {@value #SEED_PROPERTY}
+	 * (e.g. {@code java -Dtictactest.seed=42 -jar ...}) the game is reproducible, which is used by the tests.
+	 */
+	static Random random() {
+		var seed = Long.getLong(SEED_PROPERTY);
+		return seed == null ? new Random() : new Random(seed);
 	}
 
 	/**
