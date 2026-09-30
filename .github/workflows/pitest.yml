@@ -1,0 +1,59 @@
+name: Mutation Testing
+
+# Mutation Testing mit PIT (https://pitest.org/), siehe docs/mutation-testing.md.
+# Schlaegt fehl, wenn der Mutation Score unter mutationThreshold (build.gradle) faellt.
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read # zum Pullen des DevContainer-Images aus der GHCR
+
+jobs:
+  devcontainer:
+    uses: ./.github/workflows/devcontainer-image.yml
+
+  pitest:
+    needs: devcontainer
+    runs-on: ubuntu-latest
+    # Laeuft im eigenen DevContainer-Image (Java 25 + Gradle) aus der GHCR
+    container:
+      image: ${{ needs.devcontainer.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Mutation Testing mit PIT
+        run: |
+          chmod +x gradlew
+          ./gradlew pitest
+
+      # Ergebnis aus dem XML-Report in die Zusammenfassung des Laufs schreiben
+      - name: Mutation Score
+        if: always()
+        run: |
+          XML=build/reports/pitest/mutations.xml
+          [ -f "$XML" ] || exit 0
+          TOTAL=$(grep -o '<mutation ' "$XML" | wc -l)
+          KILLED=$(grep -o "status='KILLED'" "$XML" | wc -l)
+          SURVIVED=$(grep -o "status='SURVIVED'" "$XML" | wc -l)
+          {
+            echo "### Mutation Testing (PIT)"
+            echo ""
+            echo "| Mutanten | Getoetet | Ueberlebt |"
+            echo "|---|---|---|"
+            echo "| $TOTAL | $KILLED | $SURVIVED |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: PIT-Report hochladen
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pitest-report
+          path: build/reports/pitest/
+          if-no-files-found: warn

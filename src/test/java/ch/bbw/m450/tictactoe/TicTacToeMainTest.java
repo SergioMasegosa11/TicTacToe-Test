@@ -3,6 +3,7 @@ package ch.bbw.m450.tictactoe;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.Arrays;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
@@ -101,6 +102,38 @@ class TicTacToeMainTest extends TicTacToeTestFixtures {
         assertThat(TicTacToeMain.isWin(board, Stone.CIRCLE)).as(description).isFalse();
     }
 
+    // Alle 8 Gewinnlinien des Boards (Indizes 0-8)
+    private static final int[][] LINES = {
+            {0, 1, 2}, {3, 4, 5}, {6, 7, 8}, // Reihen
+            {0, 3, 6}, {1, 4, 7}, {2, 5, 8}, // Spalten
+            {0, 4, 8}, {2, 4, 6}             // Diagonalen
+    };
+
+    // Jede Linie, bei der genau ein Feld fehlt, fuer beide Farben (8 x 3 x 2 = 48 Faelle)
+    static Stream<Arguments> almostWinningLines() {
+        return Arrays.stream(LINES).flatMap(line -> Arrays.stream(line).boxed()
+                .flatMap(missing -> Arrays.stream(Stone.values())
+                        .map(color -> Arguments.of(line, missing, color))));
+    }
+
+    // Gefunden mit PIT: ohne diesen Test ueberlebten Mutanten, bei denen schon
+    // zwei Steine in der unteren Reihe bzw. rechten Spalte als Sieg zaehlten
+    @ParameterizedTest(name = "Linie {0} ohne Feld {1} ist kein Sieg fuer {2}")
+    @MethodSource("almostWinningLines")
+    void twoOfThreeIsNoWin(int[] line, int missing, Stone color) {
+        for (var field : line) {
+            if (field != missing) {
+                board[field] = color;
+            }
+        }
+
+        assertThat(TicTacToeMain.isWin(board, color)).isFalse();
+
+        // mit einem gegnerischen Stein im fehlenden Feld ebenfalls kein Sieg
+        board[missing] = color.opponent();
+        assertThat(TicTacToeMain.isWin(board, color)).isFalse();
+    }
+
     @ParameterizedTest(name = "leeres Board ist kein Sieg fuer {0}")
     @EnumSource(Stone.class)
     void emptyBoardIsNoWin(Stone color) {
@@ -158,6 +191,33 @@ class TicTacToeMainTest extends TicTacToeTestFixtures {
         assertThatThrownBy(() -> TicTacToeMain.play(new ScriptedPlayer(field), new ScriptedPlayer(field)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("cannot play to position " + field);
+    }
+
+    // ---------- play: Konsolenausgabe (gefunden mit PIT) ----------
+
+    @Test
+    void playPrintsBoardAndWinner() {
+        TicTacToeMain.play(new ScriptedPlayer(0, 1, 2), new ScriptedPlayer(3, 4));
+
+        assertThat(output())
+                .contains("\033[1mX\033[0m  \033[1mX\033[0m  \033[1mX\033[0m")
+                .endsWith("...and the winner is: CROSS" + System.lineSeparator());
+    }
+
+    @Test
+    void playPrintsDraw() {
+        TicTacToeMain.play(new ScriptedPlayer(0, 2, 3, 7, 8), new ScriptedPlayer(1, 4, 5, 6));
+
+        assertThat(output()).isEqualTo("it's a draw!" + System.lineSeparator());
+    }
+
+    @Test
+    void playPrintsBoardBeforeInvalidMove() {
+        assertThatThrownBy(() -> TicTacToeMain.play(new ScriptedPlayer(4), new ScriptedPlayer(4)))
+                .isInstanceOf(IllegalStateException.class);
+
+        // das Board vor dem ungueltigen Zug wird zur Fehlersuche ausgegeben
+        assertThat(output()).isEqualTo(TicTacToeMain.toString(givenBoard("....X....")) + System.lineSeparator());
     }
 
     @Test

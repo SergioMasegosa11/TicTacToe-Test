@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'jacoco'
+    id 'info.solidsoft.pitest' version '1.19.0' // Mutation Testing mit PIT (https://pitest.org/)
 }
 
 repositories {
@@ -20,6 +21,21 @@ test {
 
 jacoco {
     toolVersion = "0.8.14"
+}
+
+// Mutation Testing: ./gradlew pitest -> Report in build/reports/pitest/index.html
+pitest {
+    pitestVersion = '1.30.0'
+    junit5PluginVersion = '1.2.3'
+    targetClasses = ['ch.bbw.m450.tictactoe.*']
+    targetTests = ['ch.bbw.m450.tictactoe.*']
+    mutators = ['STRONGER']
+    threads = 4
+    outputFormats = ['HTML', 'XML']
+    timestampedReports = false
+    // Build schlaegt fehl, wenn zu viele Mutanten ueberleben
+    mutationThreshold = 90
+    coverageThreshold = 90
 }
 
 jacocoTestReport {
