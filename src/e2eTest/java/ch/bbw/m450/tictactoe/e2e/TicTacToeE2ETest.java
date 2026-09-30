@@ -36,6 +36,9 @@ class TicTacToeE2ETest {
     private static final String INVALID = "invalid input, please enter a free field (0-8)";
     private static final String X_WINS = "...and the winner is: CROSS";
 
+    /** Arabisch-indische Ziffer 4 (U+0664), als Konstante damit sie in Annotationen verwendet werden kann */
+    private static final String ARABIC_FOUR = "" + (char) 0x0664;
+
     private static int count(String text, String part) {
         return text.split(java.util.regex.Pattern.quote(part), -1).length - 1;
     }
@@ -135,7 +138,7 @@ class TicTacToeE2ETest {
                         "\u001b]0;hacked\u0007", // ANSI: Fenstertitel aendern
                         "%s%n%x",                // Format-String
                         "4\u00004",              // Null-Byte
-                        "٤",                // Arabisch-indische Ziffer 4 (Integer.parseInt akzeptiert sie)
+                        ARABIC_FOUR,             // Arabisch-indische Ziffer 4 (Integer.parseInt akzeptiert sie)
                         "+4",                    // Vorzeichen
                         "04",                    // fuehrende Null
                         "4; rm -rf /",           // Shell-Injection

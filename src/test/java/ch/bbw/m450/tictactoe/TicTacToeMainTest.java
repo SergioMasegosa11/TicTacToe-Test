@@ -265,4 +265,13 @@ class TicTacToeMainTest extends TicTacToeTestFixtures {
 
         assertThat(new TicTacToeMain()).isNotNull();
     }
+
+    @Test
+    void mainAbortsGracefullyWithoutInput() {
+        givenInput("");
+
+        TicTacToeMain.main(new String[0]);
+
+        assertThat(output()).endsWith("game aborted: no more input" + System.lineSeparator());
+    }
 }
