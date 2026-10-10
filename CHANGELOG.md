@@ -6,6 +6,10 @@ die Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/) (s
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-10
+
+Verbesserter Release-Prozess. Am Spiel selbst hat sich nichts geändert.
+
 ### Added (für Entwickler)
 - Release Notes werden automatisch erstellt: Changelog-Abschnitt plus von GitHub generierte Liste aller Pull Requests seit dem letzten Release, gruppiert nach Labels (`.github/release.yml`)
 - Ein Release wird nur erstellt, wenn alle Tests erfolgreich sind: eigener Job `tests` (Unit-, E2E- und Mutation-Tests) und Prüfung der CI-Ergebnisse des getaggten Commits
@@ -52,6 +56,7 @@ Erste veröffentlichte Version von TicTacTest.
 - Gradle-Build im Alpine-DevContainer: Gradle lud ein nicht lauffähiges JDK herunter, statt das JDK 25 aus dem Container zu verwenden
 - Shell-Skripte werden auch unter Windows mit LF-Zeilenenden ausgecheckt und laufen dadurch im Container
 
-[Unreleased]: https://github.com/SergioMasegosa11/TicTacToe-Test/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/SergioMasegosa11/TicTacToe-Test/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/SergioMasegosa11/TicTacToe-Test/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/SergioMasegosa11/TicTacToe-Test/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/SergioMasegosa11/TicTacToe-Test/releases/tag/v1.0.0
