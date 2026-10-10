@@ -2,6 +2,10 @@ name: Release
 
 # Erstellt einen GitHub Release mit ausfuehrbarem JAR (siehe RELEASE.md).
 # Startet NUR bei einem Release-Tag (v1.0.0, v1.1.0, ...), nie bei einem normalen Push auf main.
+#
+# Ablauf:  pruefen  ->  tests  ->  release
+# Jeder Job startet nur, wenn der vorherige erfolgreich war (needs). Schlaegt ein einziger
+# Test fehl, wird kein Release erstellt.
 on:
   push:
     tags:
@@ -14,12 +18,18 @@ on:
 
 permissions:
   contents: write # zum Erstellen des GitHub Releases
+  checks: read    # zum Pruefen der CI-Ergebnisse des getaggten Commits
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
-  release:
+  # 1. Release-Bedingungen pruefen (siehe RELEASE.md, "Bedingungen")
+  pruefen:
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      commit: ${{ steps.check.outputs.commit }}
 
     steps:
       - name: Repository auschecken
@@ -28,14 +38,8 @@ jobs:
           ref: ${{ env.TAG }}
           fetch-depth: 0 # fuer die Pruefung, ob der Commit auf main liegt
 
-      - name: Java installieren
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '25'
-
-      # Bedingungen fuer einen Release pruefen (siehe RELEASE.md, "Bedingungen")
       - name: Release-Bedingungen pruefen
+        id: check
         run: |
           COMMIT=$(git rev-parse HEAD)
           VERSION=$(grep -E '^version=' gradle.properties | cut -d= -f2 | tr -d ' \r')
@@ -55,19 +59,68 @@ jobs:
           fi
 
           # 3. Das Changelog muss einen Eintrag fuer die Version haben
-          bash scripts/changelog-section.sh "$VERSION" > changelog-section.md
+          bash scripts/changelog-section.sh "$VERSION" > /dev/null
 
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "COMMIT=$COMMIT" >> "$GITHUB_ENV"
-          echo "JAR=build/libs/tictactest-$VERSION.jar" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
 
-      - name: Automatisierte Tests ausfuehren
+  # 2. Alle Tests: ein Release ist nur erlaubt, wenn ALLE Tests erfolgreich sind
+  tests:
+    needs: pruefen
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Java installieren
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      # Unit-Tests, E2E-Tests und Mutation Testing (bricht unter 90 % Mutation Score ab)
+      - name: Unit-, E2E- und Mutation-Tests ausfuehren
         run: |
           chmod +x gradlew
-          ./gradlew clean test
+          ./gradlew clean test e2eTest pitest
+
+      # Zusaetzlich: die normalen CI-Workflows muessen auf genau diesem Commit gruen sein.
+      # Laufen sie noch (Tag direkt nach dem Push gesetzt), wird bis zu 15 Minuten gewartet.
+      - name: CI-Ergebnisse des getaggten Commits pruefen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.pruefen.outputs.commit }}
+        run: bash scripts/check-ci-status.sh "$COMMIT" test e2e pitest
+
+  # 3. Build und Veroeffentlichung, nur nach erfolgreichen Tests
+  release:
+    needs: [pruefen, tests]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.pruefen.outputs.version }}
+      COMMIT: ${{ needs.pruefen.outputs.commit }}
+      JAR: build/libs/tictactest-${{ needs.pruefen.outputs.version }}.jar
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0 # fuer den vorherigen Tag (automatische Release Notes)
+
+      - name: Java installieren
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
 
       - name: Projekt bauen und ausfuehrbares JAR erzeugen
-        run: ./gradlew build
+        run: |
+          chmod +x gradlew
+          ./gradlew jar
 
       # Das fertige JAR wird wie beim Benutzer mit "java -jar" gestartet und gespielt.
       # Der Computer-Gegner spielt zufaellig; mit festem Seed 3 gewinnt X mit 3, 4, 5 immer.
@@ -83,8 +136,23 @@ jobs:
           sha256sum "tictactest-$VERSION.jar" > "tictactest-$VERSION.jar.sha256"
           cat "tictactest-$VERSION.jar.sha256"
 
-      - name: Release-Notes zusammenstellen
+      # Release Notes werden automatisch erstellt:
+      # - Kopf mit Tag, Commit und Artefakt
+      # - Abschnitt der Version aus CHANGELOG.md (verstaendliche Beschreibung)
+      # - von GitHub generierte Liste aller Pull Requests seit dem letzten Release,
+      #   gruppiert nach Labels gemaess .github/release.yml
+      - name: Release Notes automatisch erstellen
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "$TAG^" 2>/dev/null || true)
+          echo "Vorheriger Release: ${PREVIOUS_TAG:-keiner}"
+          ARGS=(-f tag_name="$TAG" -f target_commitish="$COMMIT")
+          if [ -n "$PREVIOUS_TAG" ]; then
+            ARGS+=(-f previous_tag_name="$PREVIOUS_TAG")
+          fi
+          gh api "repos/${{ github.repository }}/releases/generate-notes" "${ARGS[@]}" --jq .body > generated-notes.md
+
           {
             echo "Release: TicTacTest $TAG"
             echo
@@ -94,7 +162,11 @@ jobs:
             echo
             echo "## Änderungen"
             echo
-            cat changelog-section.md
+            bash scripts/changelog-section.sh "$VERSION"
+            echo
+            echo "## Pull Requests und Commits (automatisch erstellt)"
+            echo
+            cat generated-notes.md
           } > release-notes.md
           cat release-notes.md
 

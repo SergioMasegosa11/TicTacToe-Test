@@ -1,0 +1,30 @@
+# Konfiguration fuer die automatisch erstellten Release Notes von GitHub
+# (wird vom Workflow .github/workflows/release.yml ueber die API "generate-notes" verwendet).
+# Pull Requests werden anhand ihrer Labels in Gruppen eingeteilt.
+# Doku: https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+    authors:
+      - dependabot
+  categories:
+    - title: Neue Funktionen
+      labels:
+        - enhancement
+        - feature
+    - title: Fehlerkorrekturen
+      labels:
+        - bug
+        - fix
+    - title: Tests und CI/CD
+      labels:
+        - tests
+        - ci
+        - devcontainer
+    - title: Dokumentation
+      labels:
+        - documentation
+    - title: Weitere Aenderungen
+      labels:
+        - "*"
