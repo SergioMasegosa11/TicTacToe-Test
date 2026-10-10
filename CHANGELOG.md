@@ -6,6 +6,11 @@ die Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/) (s
 
 ## [Unreleased]
 
+### Added (für Entwickler)
+- Release Notes werden automatisch erstellt: Changelog-Abschnitt plus von GitHub generierte Liste aller Pull Requests seit dem letzten Release, gruppiert nach Labels (`.github/release.yml`)
+- Ein Release wird nur erstellt, wenn alle Tests erfolgreich sind: eigener Job `tests` (Unit-, E2E- und Mutation-Tests) und Prüfung der CI-Ergebnisse des getaggten Commits
+- Schutz von `main`: Änderungen nur noch per Pull Request mit grünen Checks (Ruleset `.github/rulesets/main-schutz.json`, aktivierbar mit `scripts/protect-main.sh`)
+
 ## [1.0.1] - 2026-09-30
 
 Fehlerkorrekturen: Das Spiel stürzt bei Tippfehlern nicht mehr ab, und der Computer-Gegner ist nicht mehr vorhersehbar.

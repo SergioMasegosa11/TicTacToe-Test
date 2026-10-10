@@ -26,7 +26,9 @@ Release-PR: version in gradle.properties + CHANGELOG.md anpassen → Merge
 Git-Tag vX.Y.Z auf dem Commit in main erstellen und pushen
    ↓
 GitHub Actions "Release" startet
-   ↓  Bedingungen prüfen → Tests → Build → JAR erstellen → JAR starten
+   ↓  Job pruefen:  Tag = Version? Commit auf main? Changelog-Eintrag?
+   ↓  Job tests:    Unit-, E2E- und Mutation-Tests + CI des Commits grün?
+   ↓  Job release:  JAR bauen → JAR starten → Release Notes automatisch erstellen
 GitHub Release mit tictactest-X.Y.Z.jar (+ SHA-256)
    ↓
 JAR herunterladen und testen
@@ -136,12 +138,15 @@ geändert hat, nicht einfach eine Liste aller Commits:
 
 Neue Einträge werden laufend unter `## [Unreleased]` gesammelt und beim Release in eine
 Versionsnummer umbenannt. Der Abschnitt der Version wird automatisch als Release-Notes auf GitHub
-übernommen.
+übernommen, ergänzt um eine automatisch erstellte Liste aller Pull Requests (siehe
+[Automatische Release Notes](#automatische-release-notes)).
 
 ### Was passiert, wenn beim Release ein Test fehlschlägt?
 
-Der Workflow bricht sofort ab. Es wird **kein** GitHub Release erstellt und kein JAR
-veröffentlicht. Der Tag existiert dann zwar, zeigt aber auf einen fehlerhaften Stand. Vorgehen:
+Der Job `tests` schlägt fehl, und der Job `release` startet gar nicht erst (`needs: tests`).
+Es wird also **kein** GitHub Release erstellt und kein JAR veröffentlicht. Dasselbe gilt, wenn
+die normale CI (JaCoCo, E2E-Tests, Mutation Testing) auf dem getaggten Commit rot war. Der Tag
+existiert dann zwar, zeigt aber auf einen fehlerhaften Stand. Vorgehen:
 
 1. Fehler auf einem Branch beheben, per PR nach `main` mergen.
 2. Version erhöhen (z.B. `1.0.0` → `1.0.1`), Changelog anpassen.
@@ -158,9 +163,9 @@ Dasselbe gilt, wenn eine andere Bedingung nicht erfüllt ist, z.B. Tag passt nic
 | Bedingung | Wie sichergestellt |
 |---|---|
 | Die Anwendung ist auf dem gewünschten Stand | Entscheidung im Team; alle geplanten PRs sind gemergt |
-| Alle Änderungen sind auf `main` | Workflow prüft: Tag-Commit muss auf `main` liegen |
-| Das Projekt lässt sich bauen | Workflow: `./gradlew build`; vorher schon CI bei jedem Push/PR |
-| Alle Tests sind erfolgreich | Workflow: `./gradlew test` bricht bei einem Fehler ab; Coverage Gate im PR |
+| Alle Änderungen sind auf `main` | Workflow prüft: Tag-Commit muss auf `main` liegen. Auf `main` kommt nur, was per Pull Request mit grünen Checks gemergt wurde (Ruleset `main-schutz`) |
+| Das Projekt lässt sich bauen | Workflow: `./gradlew jar`; vorher schon CI bei jedem Push/PR |
+| Alle Tests sind erfolgreich | Workflow-Job `tests`: `./gradlew test e2eTest pitest` und die CI-Checks `test`, `e2e`, `pitest` des Commits müssen grün sein, sonst startet der Job `release` nicht |
 | Das Changelog ist aktualisiert | Workflow prüft: Eintrag `## [X.Y.Z]` muss in `CHANGELOG.md` existieren |
 | Die Versionsnummer ist festgelegt | Workflow prüft: Tag `vX.Y.Z` muss zu `version=X.Y.Z` in `gradle.properties` passen |
 | Das JAR funktioniert | Workflow startet das fertige JAR mit `java -jar` und spielt ein Spiel durch |
@@ -191,6 +196,73 @@ Dasselbe gilt, wenn eine andere Bedingung nicht erfüllt ist, z.B. Tag passt nic
    ```
    Erst wenn das heruntergeladene JAR funktioniert, gilt der Release als erfolgreich.
 
+## Zusatzaufgaben
+
+### Automatische Release Notes
+
+Die Release Notes werden im Workflow automatisch zusammengesetzt, niemand muss sie von Hand
+schreiben:
+
+1. **Kopf:** Tag, Commit und Artefakt
+2. **„Änderungen“:** der Abschnitt der Version aus `CHANGELOG.md`, also die verständliche
+   Beschreibung für Benutzer und Entwickler
+3. **„Pull Requests und Commits (automatisch erstellt)“:** Die Liste aller Pull Requests seit
+   dem letzten Release, erzeugt über die GitHub-API
+   [`generate-notes`](https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes).
+   Sie enthält auch die beteiligten Personen und einen Link „Full Changelog“ zum Vergleich mit
+   dem vorherigen Tag.
+
+Die Pull Requests werden nach ihren **Labels** gruppiert. Die Gruppen stehen in
+[`.github/release.yml`](.github/release.yml):
+
+| Label | Gruppe in den Release Notes |
+|---|---|
+| `enhancement`, `feature` | Neue Funktionen |
+| `bug`, `fix` | Fehlerkorrekturen |
+| `tests`, `ci`, `devcontainer` | Tests und CI/CD |
+| `documentation` | Dokumentation |
+| alle anderen | Weitere Änderungen |
+| `ignore-for-release` | wird nicht aufgeführt |
+
+### Release nur, wenn alle Tests erfolgreich sind
+
+Der Release-Workflow besteht aus drei Jobs, die aufeinander warten (`needs`):
+
+| Job | Was er macht | Wenn er fehlschlägt |
+|---|---|---|
+| `pruefen` | Tag passt zur Version, Commit liegt auf `main`, Changelog-Eintrag vorhanden | `tests` und `release` starten nicht |
+| `tests` | `./gradlew test e2eTest pitest`: Unit-Tests, E2E-Tests und Mutation Testing (mindestens 90 % Mutation Score). Danach prüft [`scripts/check-ci-status.sh`](scripts/check-ci-status.sh), dass die normalen CI-Checks `test`, `e2e` und `pitest` auf genau diesem Commit grün sind. Laufen sie noch, wird bis zu 15 Minuten gewartet | `release` startet nicht |
+| `release` | JAR bauen, JAR starten, Release Notes erstellen, Release veröffentlichen | Release wird nicht erstellt |
+
+Damit gibt es zwei Sicherungen: Die Tests laufen im Release-Workflow noch einmal selbst, und
+die Ergebnisse der normalen CI auf dem Commit werden zusätzlich geprüft.
+
+### Schutz von `main` durch Pull Requests
+
+Auf `main` darf nicht mehr direkt gepusht werden. Änderungen kommen nur noch über einen Pull
+Request mit grünen Checks dorthin. Das ist als GitHub-**Ruleset** umgesetzt, die Regeln liegen
+als Datei im Repository: [`.github/rulesets/main-schutz.json`](.github/rulesets/main-schutz.json).
+
+| Regel | Bedeutung |
+|---|---|
+| `pull_request` | Änderungen nur per Pull Request (0 nötige Reviews, weil ein Einzelprojekt; im Team auf 1 setzen) |
+| `required_status_checks` | Der PR kann erst gemergt werden, wenn `test` (JaCoCo), `e2e` (E2E-Tests), `pitest` (Mutation Testing) und `gate` (Coverage Gate) grün sind |
+| `non_fast_forward` | kein Force-Push auf `main` (die History kann nicht umgeschrieben werden) |
+| `deletion` | `main` kann nicht gelöscht werden |
+
+**Aktivieren** (einmalig, mit einem Token mit Admin-Rechten, classic Scope `repo`):
+
+```bash
+GITHUB_TOKEN=<token> bash scripts/protect-main.sh
+```
+
+Das Skript legt das Ruleset auf GitHub an oder aktualisiert es, wenn es schon existiert.
+Kontrolle auf GitHub: *Settings → Rules → Rulesets → main-schutz*.
+
+**Zusammen mit dem Release-Workflow** bedeutet das: Jeder Commit auf `main` hat die Tests schon im
+Pull Request bestanden, und ein Release entsteht nur aus einem Commit auf `main`, dessen Tests
+im Release-Workflow noch einmal grün sind.
+
 ## Wie entsteht aus einem Git-Stand eine veröffentlichte Version?
 
 - **Nachvollziehbar:** Der Tag `vX.Y.Z` zeigt unveränderlich auf einen Commit. Die Release-Notes
@@ -198,6 +270,7 @@ Dasselbe gilt, wenn eine andere Bedingung nicht erfüllt ist, z.B. Tag passt nic
 - **Reproduzierbar:** Der Build läuft automatisch in GitHub Actions mit festgelegter Java-Version
   und dem Gradle-Wrapper (feste Gradle-Version). Aus demselben Tag entsteht immer ein JAR mit
   demselben Quellcode, denselben Abhängigkeiten und derselben Version.
-- **Kontrolliert:** Nur ein bewusst gepushter Tag startet den Release. Der Workflow veröffentlicht
-  nur, wenn Tag-Version, Changelog und `main` zusammenpassen und alle Tests und der JAR-Test
-  erfolgreich sind.
+- **Kontrolliert:** Nur ein bewusst gepushter Tag startet den Release. Auf `main` kommt nur, was
+  per Pull Request mit grünen Checks gemergt wurde. Der Workflow veröffentlicht nur, wenn
+  Tag-Version, Changelog und `main` zusammenpassen und alle Tests (Unit, E2E, Mutation, CI des
+  Commits) und der JAR-Test erfolgreich sind.
