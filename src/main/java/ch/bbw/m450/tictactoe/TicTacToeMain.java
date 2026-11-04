@@ -19,6 +19,9 @@ public class TicTacToeMain {
 
 	public static void main(String[] args) {
 		try {
+			// Deployment assignment: GreedyPlayer (ch.bbw.m450.tictactoe.players.GreedyPlayer) must
+			// always remain usable as the opponent. To switch in your own player instead of
+			// RandomPlayer, hardcode it here, e.g. play(new HumanPlayer(), new GreedyPlayer()).
 			play(new HumanPlayer(), new RandomPlayer(random()));
 		} catch (IllegalStateException e) {
 			// e.g. end of input or too many invalid inputs: end the game with a message instead of a stack trace

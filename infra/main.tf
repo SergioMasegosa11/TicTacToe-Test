@@ -59,11 +59,11 @@ resource "aws_key_pair" "tictactest" {
   public_key = tls_private_key.ssh.public_key_openssh
 }
 
-# Ressource: Security Group, die nur SSH (Port 22) erlaubt. var.allowed_cidr sollte
-# auf die eigene IP eingeschraenkt werden (siehe docs/iac.md, Sicherheit).
+# Ressource: Security Group, die SSH und die ttyd-Web-Konsole erlaubt. var.allowed_cidr
+# sollte auf die eigene IP eingeschraenkt werden (siehe docs/iac.md, Sicherheit).
 resource "aws_security_group" "tictactest" {
   name        = "${var.name_prefix}-sg"
-  description = "TicTacTest: SSH-Zugriff fuer die EC2-Instanz"
+  description = "TicTacTest: SSH und Web-Konsole (ttyd) fuer die EC2-Instanz"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -72,6 +72,16 @@ resource "aws_security_group" "tictactest" {
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = [var.allowed_cidr]
+  }
+
+  # Web-Konsole (ttyd): das Release-JAR unveraendert im Browser spielbar, siehe
+  # docs/deployment.md. Bewusst offener als SSH, da hier nur das Spiel selbst laeuft.
+  ingress {
+    description = "ttyd Web-Konsole"
+    from_port   = 7681
+    to_port     = 7681
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
@@ -89,6 +99,9 @@ resource "aws_security_group" "tictactest" {
 
 # Ressource: die eigentliche EC2-Instanz. Groesse ueber var.instance_type (micro,
 # Learner-Lab-/Kosten-tauglich), Netzwerk/Security Group wie oben definiert.
+# user_data installiert einmalig ttyd + den Platzhalter-Dienst (siehe deploy/); das
+# eigentliche App-Deployment (JAR) laeuft danach per SSH ueber
+# .github/workflows/deploy.yml, OHNE dass diese Instanz neu erstellt wird.
 resource "aws_instance" "tictactest" {
   ami                    = data.aws_ami.amazon_linux.id
   instance_type          = var.instance_type
@@ -96,7 +109,26 @@ resource "aws_instance" "tictactest" {
   key_name               = aws_key_pair.tictactest.key_name
   vpc_security_group_ids = [aws_security_group.tictactest.id]
 
+  user_data = templatefile("${path.module}/../deploy/cloud-init.sh.tftpl", {
+    run_tictactest_sh = file("${path.module}/../deploy/run-tictactest.sh")
+    bootstrap_sh      = file("${path.module}/../deploy/bootstrap.sh")
+  })
+
   tags = {
     Name = "${var.name_prefix}-instance"
+  }
+}
+
+# Elastic IP: haelt die IP ueber Stop/Start der Instanz hinweg stabil, damit der
+# Web-Konsole-Link im README nicht nach jedem Lab-Neustart angepasst werden muss.
+# Learner-Lab-Hinweis: EIPs sind kontingentiert - falls die Zuweisung fehlschlaegt,
+# kann dieser Block entfernt und stattdessen aws_instance.tictactest.public_ip direkt
+# verwendet werden (siehe docs/deployment.md, Reflexion).
+resource "aws_eip" "tictactest" {
+  instance = aws_instance.tictactest.id
+  domain   = "vpc"
+
+  tags = {
+    Name = "${var.name_prefix}-eip"
   }
 }

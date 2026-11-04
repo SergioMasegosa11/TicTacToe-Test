@@ -1,0 +1,139 @@
+name: Deploy (Web-Konsole)
+
+# Deployt ein bereits veroeffentlichtes Release auf die bestehende EC2-Instanz (siehe
+# docs/deployment.md). Startet NUR bei einem veroeffentlichten Release oder manuell fuer
+# einen bestehenden Tag - NIE bei einem Push auf main. Baut NICHTS neu: Es wird immer das
+# fertige JAR aus dem GitHub Release heruntergeladen (siehe RELEASE.md).
+#
+# Deployt nur, was sich seit dem letzten erfolgreichen Deploy geaendert hat (Backend
+# und/oder Frontend/Web-Konsole, siehe scripts/deploy-diff.sh). Mit "force" (oder wenn noch
+# nie deployt wurde) wird immer deployt - damit laesst sich auch gezielt eine aeltere
+# Version erneut ausrollen.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release-Tag, das (erneut) deployt werden soll, z.B. v1.0.3"
+        required: true
+      force:
+        description: "Deployen, auch wenn sich seit dem letzten Deploy nichts geaendert hat (fuer Redeploy einer aelteren Version)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read      # zum Lesen des Repos und Herunterladen des Release-Assets
+  deployments: write  # zum Vermerken, welcher Tag zuletzt deployt wurde
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+
+jobs:
+  # 1. Herausfinden, was seit dem letzten erfolgreichen Deploy geaendert hat.
+  diff:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.result.outputs.backend }}
+      frontend: ${{ steps.result.outputs.frontend }}
+      previous_tag: ${{ steps.previous.outputs.tag }}
+
+    steps:
+      - name: Repository auschecken (volle Historie fuer den Vergleich)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+
+      - name: Zuletzt erfolgreich deployten Tag ermitteln
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag_found=$(gh api "repos/${{ github.repository }}/deployments?environment=production&per_page=1" --jq '.[0].ref // ""')
+          echo "tag=$tag_found" >> "$GITHUB_OUTPUT"
+          echo "Letzter deployter Tag: ${tag_found:-keiner}"
+
+      - name: Aenderungen seit dem letzten Deploy ermitteln (Backend/Frontend)
+        id: result
+        run: |
+          if [ "${{ github.event.inputs.force }}" = "true" ] || [ -z "${{ steps.previous.outputs.tag }}" ]; then
+            echo "Kein Vergleich moeglich/gewuenscht - deploye Backend und Frontend vollstaendig."
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            bash scripts/deploy-diff.sh "${{ steps.previous.outputs.tag }}" "$TAG"
+          fi
+
+  # 2. Nur deployen, wenn sich Backend und/oder Frontend tatsaechlich geaendert haben.
+  deploy:
+    needs: diff
+    if: needs.diff.outputs.backend == 'true' || needs.diff.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Version aus dem Tag ableiten
+        run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Release-JAR herunterladen (wird NICHT neu gebaut, siehe RELEASE.md)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release
+          gh release download "$TAG" --dir release --pattern "tictactest-*.jar" --pattern "*.sha256"
+          sha256sum -c "release/tictactest-$VERSION.jar.sha256"
+
+      - name: SSH-Zugang einrichten
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Backend (JAR) deployen
+        if: needs.diff.outputs.backend == 'true'
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh -i ~/.ssh/id_deploy "$EC2_USER@$EC2_HOST" "mkdir -p /opt/tictactest/releases/$VERSION"
+          scp -i ~/.ssh/id_deploy "release/tictactest-$VERSION.jar" "$EC2_USER@$EC2_HOST:/opt/tictactest/releases/$VERSION/"
+
+      - name: Frontend (Web-Konsole) deployen
+        if: needs.diff.outputs.frontend == 'true'
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh -i ~/.ssh/id_deploy "$EC2_USER@$EC2_HOST" "mkdir -p /opt/tictactest/deploy-src"
+          scp -i ~/.ssh/id_deploy deploy/bootstrap.sh deploy/run-tictactest.sh "$EC2_USER@$EC2_HOST:/opt/tictactest/deploy-src/"
+
+      # Setzt den "current"-Symlink auf die deployte Version und startet den Dienst neu.
+      # Laeuft bei jedem Deploy, der ueberhaupt stattfindet (Infrastruktur bleibt unberuehrt).
+      - name: Web-Konsole aktualisieren
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: ssh -i ~/.ssh/id_deploy "$EC2_USER@$EC2_HOST" "/opt/tictactest/deploy-src/bootstrap.sh $VERSION"
+
+      # Vermerkt diesen Tag als "zuletzt deployt", damit der naechste Lauf den richtigen
+      # Vergleichspunkt findet (siehe Job "diff" oben).
+      - name: Deployment in GitHub vermerken
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deployment_id=$(gh api "repos/${{ github.repository }}/deployments" --input - --jq '.id' <<EOF
+          {"ref":"$TAG","environment":"production","auto_merge":false,"required_contexts":[],"description":"TicTacTest $TAG auf der Web-Konsole deployt"}
+          EOF
+          )
+          gh api "repos/${{ github.repository }}/deployments/$deployment_id/statuses" --input - <<EOF
+          {"state":"success","description":"TicTacTest $TAG laeuft"}
+          EOF

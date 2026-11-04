@@ -6,6 +6,18 @@ die Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/) (s
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-11-04
+
+Deployment als Web-App. Am Spiel selbst hat sich nichts geändert (weiterhin RandomPlayer
+als Standard-Gegner; GreedyPlayer bleibt wie vom Auftrag verlangt jederzeit verfügbar, um
+ihn in `main()` fest einzuschalten).
+
+### Added (für Entwickler)
+- OpenTofu-IaC (`infra/`) für eine EC2-Instanz im AWS Learner Lab, siehe `docs/iac.md`
+- Web-Konsole (ttyd) macht das Release-JAR unverändert im Browser spielbar (`deploy/`), siehe `docs/deployment.md`
+- Deploy-Workflow (`.github/workflows/deploy.yml`): deployt bei jedem veröffentlichten Release nur, was sich seit dem letzten Deploy geändert hat (Backend und/oder Web-Konsole); eine frühere Version kann gezielt erneut deployt werden; ein Push auf `main` deployt nichts
+- Infra-Workflow (`.github/workflows/infra.yml`): manuelles `plan`/`apply`/`destroy` der EC2-Infrastruktur, getrennt vom App-Deployment
+
 ## [1.0.2] - 2026-10-10
 
 Verbesserter Release-Prozess. Am Spiel selbst hat sich nichts geändert.
@@ -56,7 +68,8 @@ Erste veröffentlichte Version von TicTacTest.
 - Gradle-Build im Alpine-DevContainer: Gradle lud ein nicht lauffähiges JDK herunter, statt das JDK 25 aus dem Container zu verwenden
 - Shell-Skripte werden auch unter Windows mit LF-Zeilenenden ausgecheckt und laufen dadurch im Container
 
-[Unreleased]: https://github.com/SergioMasegosa11/TicTacToe-Test/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/SergioMasegosa11/TicTacToe-Test/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/SergioMasegosa11/TicTacToe-Test/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/SergioMasegosa11/TicTacToe-Test/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/SergioMasegosa11/TicTacToe-Test/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/SergioMasegosa11/TicTacToe-Test/releases/tag/v1.0.0
