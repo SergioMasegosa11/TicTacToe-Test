@@ -1,0 +1,102 @@
+# OpenTofu-Konfiguration fuer eine erste Cloud-Infrastruktur (AWS Learner Lab).
+# Siehe docs/iac.md fuer Erklaerungen und den Ablauf (init -> plan -> apply -> destroy).
+
+terraform {
+  required_version = ">= 1.6.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
+  }
+}
+
+# Provider: das Bindeglied zwischen OpenTofu und AWS. Er weiss, wie die AWS-API
+# angesprochen wird (Region, Zugangsdaten aus Umgebungsvariablen/Learner-Lab-Session).
+provider "aws" {
+  region = var.region
+}
+
+# AWS Learner Lab stellt nur die Standard-VPC zur Verfuegung (keine eigenen VPCs/IAM-Rollen).
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+# Aktuelles Amazon Linux 2023 Image, statt eine fest eingetragene AMI-ID zu pflegen.
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+}
+
+# Ressource: das SSH-Schluesselpaar wird von OpenTofu selbst erzeugt, damit kein
+# lokales ssh-keygen noetig ist. Der private Schluessel landet NUR im State (siehe
+# docs/iac.md, Abschnitt State) und wird einmalig per "tofu output" exportiert,
+# nie committet.
+resource "tls_private_key" "ssh" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "aws_key_pair" "tictactest" {
+  key_name   = "${var.name_prefix}-key"
+  public_key = tls_private_key.ssh.public_key_openssh
+}
+
+# Ressource: Security Group, die nur SSH (Port 22) erlaubt. var.allowed_cidr sollte
+# auf die eigene IP eingeschraenkt werden (siehe docs/iac.md, Sicherheit).
+resource "aws_security_group" "tictactest" {
+  name        = "${var.name_prefix}-sg"
+  description = "TicTacTest: SSH-Zugriff fuer die EC2-Instanz"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.allowed_cidr]
+  }
+
+  egress {
+    description = "aller ausgehender Verkehr"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.name_prefix}-sg"
+  }
+}
+
+# Ressource: die eigentliche EC2-Instanz. Groesse ueber var.instance_type (micro,
+# Learner-Lab-/Kosten-tauglich), Netzwerk/Security Group wie oben definiert.
+resource "aws_instance" "tictactest" {
+  ami                    = data.aws_ami.amazon_linux.id
+  instance_type          = var.instance_type
+  subnet_id              = data.aws_subnets.default.ids[0]
+  key_name               = aws_key_pair.tictactest.key_name
+  vpc_security_group_ids = [aws_security_group.tictactest.id]
+
+  tags = {
+    Name = "${var.name_prefix}-instance"
+  }
+}
