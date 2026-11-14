@@ -132,11 +132,13 @@ mit OIDC in einem echten Konto würde die Abwägung eher Richtung SSM kippen.
 ## Änderungen zwischen Releases erkennen
 
 - **Pfad-Zuordnung** (siehe [`scripts/deploy-diff.sh`](../scripts/deploy-diff.sh)):
-  `src/main/**`, `build.gradle`, `gradle.properties` → Backend (JAR-Inhalt);
+  `src/main/**`, `build.gradle` → Backend (JAR-Inhalt);
   `deploy/**` → ebenfalls Backend (Betrieb des Dienstes auf der Instanz);
   `frontend/**` → Frontend. Doku, Tests, Workflows, `infra/` lösen **kein** Deployment
   aus - Infrastruktur ändert sich nur bewusst per `tofu apply`, nie als Nebenwirkung
-  eines Releases.
+  eines Releases. Sonderfall `gradle.properties`: dort steht die Versionsnummer, die
+  sich bei **jedem** Release ändert - zählte sie als Backend, gäbe es nie ein
+  Nur-Frontend-Release. Die Nummer allein ändert das Verhalten des JARs nicht.
 - **Verglichen wird mit dem zuletzt DEPLOYTEN Tag** (GitHub-Deployments-API), nicht mit
   dem letzten Commit: zwischen zwei Releases liegen beliebig viele Commits - der
   Vergleich mit nur dem letzten Commit würde fast alle Änderungen übersehen. Und falls
