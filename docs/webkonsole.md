@@ -48,7 +48,9 @@ Dann http://localhost:7681 öffnen und spielen.
   field (0-8)`), nach zu vielen Fehlversuchen bricht es die Partie kontrolliert ab -
   die Schleife startet danach einfach eine neue.
 - **Zwei Browser-Tabs = zwei Java-Prozesse:** ttyd startet pro Verbindung einen eigenen
-  Prozess. Eine JVM für dieses kleine Spiel braucht grob 50-100 MB. Auf einem Server mit
+  Prozess. Auf der EC2-Instanz nachgemessen (`pgrep -c java` bei 0/1/2 offenen
+  Verbindungen): pro Tab genau ein zusätzlicher Java-Prozess, nach dem Schliessen
+  verschwinden sie wieder. Eine JVM für dieses kleine Spiel braucht grob 50-100 MB. Auf einem Server mit
   **1 GB RAM** sind also nur etwa **5-10 gleichzeitige Spiele** realistisch, bevor der
   Speicher ausgeht (dann killt der Kernel Prozesse per OOM-Killer). Für den Lernzweck
   in Ordnung; für echten Betrieb müsste man Verbindungen limitieren (`ttyd -m <max>`)
