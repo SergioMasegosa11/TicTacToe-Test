@@ -136,6 +136,19 @@ jobs:
           sha256sum "tictactest-$VERSION.jar" > "tictactest-$VERSION.jar.sha256"
           cat "tictactest-$VERSION.jar.sha256"
 
+      # Das Frontend gehoert zum Release (nicht zur Infrastruktur): es wird zusammen mit
+      # dem JAR versioniert und spaeter unveraendert aus genau diesem Archiv deployt.
+      # version.js wird dabei automatisch aus dem Release-Tag gesetzt (im Repo: "dev") -
+      # die angezeigte Frontend-Version stimmt dadurch immer, ohne Handarbeit.
+      # Die deploy/-Skripte sind dagegen Teil der Instanz-Einrichtung (Infrastruktur/
+      # Betrieb) und werden direkt aus dem Git-Tag deployt, nicht als Release-Asset.
+      - name: Frontend-Archiv erstellen
+        run: |
+          echo "window.FRONTEND_VERSION = \"$VERSION\";" > frontend/version.js
+          (cd frontend && zip -r "../tictactest-frontend-$VERSION.zip" .)
+          sha256sum "tictactest-frontend-$VERSION.zip" > "tictactest-frontend-$VERSION.zip.sha256"
+          unzip -l "tictactest-frontend-$VERSION.zip"
+
       # Release Notes werden automatisch erstellt:
       # - Kopf mit Tag, Commit und Artefakt
       # - Abschnitt der Version aus CHANGELOG.md (verstaendliche Beschreibung)
@@ -177,6 +190,8 @@ jobs:
           gh release create "$TAG" \
             "$JAR" \
             "$JAR.sha256" \
+            "tictactest-frontend-$VERSION.zip" \
+            "tictactest-frontend-$VERSION.zip.sha256" \
             --title "TicTacTest $TAG" \
             --notes-file release-notes.md \
             --verify-tag

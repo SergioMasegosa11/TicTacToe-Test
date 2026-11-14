@@ -25,6 +25,7 @@ bin/
 # .terraform/ ist bereits durch die Regel ".*" oben abgedeckt.
 *.tfstate
 *.tfstate.*
+tfplan
 *.tfvars
 !*.tfvars.example
 *.pem

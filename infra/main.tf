@@ -34,6 +34,13 @@ data "aws_subnets" "default" {
   }
 }
 
+# Learner Lab: eigene IAM-Rollen/-Profile sind verboten, aber das vorbereitete
+# LabInstanceProfile darf verwendet werden. Damit greift die Instanz ohne Access Keys
+# auf andere AWS-Dienste zu (z.B. S3) - auf der Instanz liegen NIE Zugangsdaten.
+data "aws_iam_instance_profile" "lab" {
+  name = "LabInstanceProfile"
+}
+
 # Aktuelles Amazon Linux 2023 Image, statt eine fest eingetragene AMI-ID zu pflegen.
 data "aws_ami" "amazon_linux" {
   most_recent = true
@@ -84,6 +91,17 @@ resource "aws_security_group" "tictactest" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # Versions-Endpoint (deploy/version-server.py): liefert NUR die Versionsnummer des
+  # laufenden Releases als Text. Muss oeffentlich sein, damit das Frontend (S3, anderer
+  # Origin) und die Deploy-Pipeline die laufende Version pruefen koennen.
+  ingress {
+    description = "Versionsabfrage (version.txt)"
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     description = "aller ausgehender Verkehr"
     from_port   = 0
@@ -108,11 +126,24 @@ resource "aws_instance" "tictactest" {
   subnet_id              = data.aws_subnets.default.ids[0]
   key_name               = aws_key_pair.tictactest.key_name
   vpc_security_group_ids = [aws_security_group.tictactest.id]
+  iam_instance_profile   = data.aws_iam_instance_profile.lab.name
 
   user_data = templatefile("${path.module}/../deploy/cloud-init.sh.tftpl", {
     run_tictactest_sh = file("${path.module}/../deploy/run-tictactest.sh")
     bootstrap_sh      = file("${path.module}/../deploy/bootstrap.sh")
+    version_server_py = file("${path.module}/../deploy/version-server.py")
   })
+
+  # user_data (cloud-init) laeuft nur beim ALLERERSTEN Start der Instanz. Spaetere
+  # Aenderungen an den deploy/-Skripten werden per SSH-Deploy ausgerollt, nicht ueber
+  # die Infrastruktur. Ohne ignore_changes wuerde jede Skript-Aenderung hier einen
+  # plan-Diff erzeugen; mit user_data_replace_on_change = true wuerde sie sogar die
+  # Instanz ERSETZEN (neue Instanz, Deploy-Stand weg) - genau das, was die Trennung
+  # "Infrastruktur vs. Applikation" verhindern soll. Nach destroy+apply greift
+  # automatisch wieder der aktuelle Stand der Skripte.
+  lifecycle {
+    ignore_changes = [user_data]
+  }
 
   tags = {
     Name = "${var.name_prefix}-instance"

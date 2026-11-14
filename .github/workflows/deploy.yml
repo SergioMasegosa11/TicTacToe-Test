@@ -1,14 +1,20 @@
 name: Deploy (Web-Konsole)
 
-# Deployt ein bereits veroeffentlichtes Release auf die bestehende EC2-Instanz (siehe
+# Deployt ein bereits veroeffentlichtes Release auf die bestehende Infrastruktur (siehe
 # docs/deployment.md). Startet NUR bei einem veroeffentlichten Release oder manuell fuer
-# einen bestehenden Tag - NIE bei einem Push auf main. Baut NICHTS neu: Es wird immer das
-# fertige JAR aus dem GitHub Release heruntergeladen (siehe RELEASE.md).
+# einen bestehenden Tag - NIE bei einem Push auf main. Baut NICHTS neu: Es werden immer
+# die fertigen Artefakte aus dem GitHub Release verwendet (JAR + Frontend-Archiv).
 #
 # Deployt nur, was sich seit dem letzten erfolgreichen Deploy geaendert hat (Backend
-# und/oder Frontend/Web-Konsole, siehe scripts/deploy-diff.sh). Mit "force" (oder wenn noch
-# nie deployt wurde) wird immer deployt - damit laesst sich auch gezielt eine aeltere
-# Version erneut ausrollen.
+# und/oder Frontend, siehe scripts/deploy-diff.sh). Mit "force" (oder wenn noch nie
+# deployt wurde) wird beides deployt - damit laesst sich auch gezielt eine aeltere
+# Version erneut ausrollen (Rollback, Wiederaufbau nach "tofu destroy").
+#
+# Secrets/Variables (siehe docs/deployment.md, Secrets-Konzept):
+#   Secrets : EC2_SSH_PRIVATE_KEY (langlebig), AWS_ACCESS_KEY_ID/_SECRET_ACCESS_KEY/
+#             _SESSION_TOKEN (Learner Lab, laufen pro Session ab - nur fuers Frontend/S3)
+#   Variables (nicht geheim): EC2_HOST, EC2_USER, S3_BUCKET_FRONTEND, FRONTEND_URL
+#             (alles oeffentlich sichtbare Adressen/Namen aus "tofu output")
 on:
   release:
     types: [published]
@@ -18,20 +24,33 @@ on:
         description: "Release-Tag, das (erneut) deployt werden soll, z.B. v1.0.3"
         required: true
       force:
-        description: "Deployen, auch wenn sich seit dem letzten Deploy nichts geaendert hat (fuer Redeploy einer aelteren Version)"
+        description: "Deployen, auch wenn sich seit dem letzten Deploy nichts geaendert hat (fuer Redeploy/Rollback einer aelteren Version)"
         required: false
         type: boolean
         default: false
 
 permissions:
-  contents: read      # zum Lesen des Repos und Herunterladen des Release-Assets
+  contents: read      # zum Lesen des Repos und Herunterladen der Release-Assets
   deployments: write  # zum Vermerken, welcher Tag zuletzt deployt wurde
+
+# Zwei Deployments duerfen nie gleichzeitig laufen: sie wuerden sich auf der Instanz und
+# im S3-Bucket gegenseitig ueberschreiben. Ein zweiter Lauf wartet, bis der erste fertig
+# ist (cancel-in-progress: false, damit kein halb fertiges Deployment abgebrochen wird).
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 env:
   TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
 
 jobs:
-  # 1. Herausfinden, was seit dem letzten erfolgreichen Deploy geaendert hat.
+  # 1. Herausfinden, was sich seit dem letzten erfolgreichen Deploy geaendert hat.
+  # Verglichen wird mit dem zuletzt DEPLOYTEN Tag (GitHub-Deployments-API), nicht mit dem
+  # letzten Commit: zwischen zwei Releases liegen beliebig viele Commits, und nach einem
+  # uebersprungenen/fehlgeschlagenen Deploy muss der Vergleichspunkt der letzte wirklich
+  # ausgerollte Stand sein. Der paths-Filter von GitHub Actions hilft hier nicht: er
+  # filtert nur, OB ein Workflow bei einem Push startet - er kann nicht zwei Tags
+  # vergleichen und schon gar nicht "seit dem letzten Deploy" beruecksichtigen.
   diff:
     runs-on: ubuntu-latest
     outputs:
@@ -55,6 +74,7 @@ jobs:
           echo "tag=$tag_found" >> "$GITHUB_OUTPUT"
           echo "Letzter deployter Tag: ${tag_found:-keiner}"
 
+      # Allererstes Release bzw. "force": kein Vergleichspunkt -> beides deployen.
       - name: Aenderungen seit dem letzten Deploy ermitteln (Backend/Frontend)
         id: result
         run: |
@@ -67,6 +87,8 @@ jobs:
           fi
 
   # 2. Nur deployen, wenn sich Backend und/oder Frontend tatsaechlich geaendert haben.
+  # Die Infrastruktur (infra/) wird hier NIE angefasst - tofu apply laeuft bewusst
+  # getrennt (lokal bzw. infra.yml), ein Deployment erstellt nichts neu.
   deploy:
     needs: diff
     if: needs.diff.outputs.backend == 'true' || needs.diff.outputs.frontend == 'true'
@@ -81,48 +103,107 @@ jobs:
       - name: Version aus dem Tag ableiten
         run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
 
+      # ---------- Backend (JAR auf die EC2-Instanz) ----------
+
       - name: Release-JAR herunterladen (wird NICHT neu gebaut, siehe RELEASE.md)
+        if: needs.diff.outputs.backend == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p release
-          gh release download "$TAG" --dir release --pattern "tictactest-*.jar" --pattern "*.sha256"
-          sha256sum -c "release/tictactest-$VERSION.jar.sha256"
+          gh release download "$TAG" --dir release --pattern "tictactest-[0-9]*.jar" --pattern "tictactest-[0-9]*.jar.sha256"
+          cd release && sha256sum -c "tictactest-$VERSION.jar.sha256"
 
       - name: SSH-Zugang einrichten
+        if: needs.diff.outputs.backend == 'true'
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Backend (JAR) deployen
+      # JAR + Betriebs-Skripte hochladen, dann setzt bootstrap.sh <version> den
+      # current-Symlink und startet den Dienst neu. Die Instanz bleibt dieselbe.
+      - name: Backend deployen (JAR + Dienst neu starten)
         if: needs.diff.outputs.backend == 'true'
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
         run: |
-          ssh -i ~/.ssh/id_deploy "$EC2_USER@$EC2_HOST" "mkdir -p /opt/tictactest/releases/$VERSION"
+          ssh -i ~/.ssh/id_deploy "$EC2_USER@$EC2_HOST" "mkdir -p /opt/tictactest/releases/$VERSION /opt/tictactest/deploy-src"
           scp -i ~/.ssh/id_deploy "release/tictactest-$VERSION.jar" "$EC2_USER@$EC2_HOST:/opt/tictactest/releases/$VERSION/"
+          scp -i ~/.ssh/id_deploy deploy/bootstrap.sh deploy/run-tictactest.sh deploy/version-server.py "$EC2_USER@$EC2_HOST:/opt/tictactest/deploy-src/"
+          ssh -i ~/.ssh/id_deploy "$EC2_USER@$EC2_HOST" "chmod +x /opt/tictactest/deploy-src/bootstrap.sh && /opt/tictactest/deploy-src/bootstrap.sh $VERSION"
 
-      - name: Frontend (Web-Konsole) deployen
+      # Nach dem Deployment wird ueber den Versions-Endpoint geprueft, dass GENAU die
+      # neue Version laeuft. Meldet die Instanz sie nicht innert 2 Minuten, schlaegt der
+      # Workflow fehl - ein kaputtes Release faellt so sofort auf.
+      - name: Laufende Version pruefen
+        if: needs.diff.outputs.backend == 'true'
+        env:
+          EC2_HOST: ${{ vars.EC2_HOST }}
+        run: |
+          for i in $(seq 1 12); do
+            running=$(curl -fsS --max-time 5 "http://$EC2_HOST:8080/version.txt" || true)
+            echo "Versuch $i/12: laufende Version = '${running:-?}' (erwartet: $VERSION)"
+            if [ "$running" = "$VERSION" ]; then
+              echo "OK: Version $VERSION laeuft."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Instanz meldet nicht Version $VERSION - Deployment fehlgeschlagen."
+          exit 1
+
+      # ---------- Frontend (Release-Archiv in den S3-Bucket) ----------
+
+      - name: Frontend-Archiv aus dem Release herunterladen
         if: needs.diff.outputs.frontend == 'true'
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          ssh -i ~/.ssh/id_deploy "$EC2_USER@$EC2_HOST" "mkdir -p /opt/tictactest/deploy-src"
-          scp -i ~/.ssh/id_deploy deploy/bootstrap.sh deploy/run-tictactest.sh "$EC2_USER@$EC2_HOST:/opt/tictactest/deploy-src/"
+          mkdir -p release
+          gh release download "$TAG" --dir release --pattern "tictactest-frontend-*.zip" --pattern "tictactest-frontend-*.zip.sha256"
+          cd release
+          sha256sum -c "tictactest-frontend-$VERSION.zip.sha256"
+          mkdir -p frontend-dist
+          unzip -o "tictactest-frontend-$VERSION.zip" -d frontend-dist
 
-      # Setzt den "current"-Symlink auf die deployte Version und startet den Dienst neu.
-      # Laeuft bei jedem Deploy, der ueberhaupt stattfindet (Infrastruktur bleibt unberuehrt).
-      - name: Web-Konsole aktualisieren
+      # sync --delete ersetzt das bisherige Frontend vollstaendig (geloeschte Dateien
+      # verschwinden auch im Bucket). --exclude config.js schuetzt die von OpenTofu
+      # geschriebene Konfiguration (URL der Web-Konsole) VOR dem Ueberschreiben UND vor
+      # dem Loeschen - sie stammt aus der Infrastruktur, nicht aus dem Release.
+      # Braucht AWS-Zugangsdaten (Learner Lab: laufen pro Session ab, siehe
+      # docs/deployment.md "abgelaufene Credentials").
+      - name: Frontend nach S3 deployen
+        if: needs.diff.outputs.frontend == 'true'
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-        run: ssh -i ~/.ssh/id_deploy "$EC2_USER@$EC2_HOST" "/opt/tictactest/deploy-src/bootstrap.sh $VERSION"
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          aws s3 sync release/frontend-dist "s3://${{ vars.S3_BUCKET_FRONTEND }}" \
+            --delete --exclude "config.js"
+
+      - name: Ausgeliefertes Frontend pruefen
+        if: needs.diff.outputs.frontend == 'true'
+        run: |
+          deployed=$(curl -fsS --max-time 10 "${{ vars.FRONTEND_URL }}/version.js")
+          echo "$deployed"
+          echo "$deployed" | grep -q "\"$VERSION\"" || {
+            echo "::error::Frontend liefert nicht Version $VERSION aus."
+            exit 1
+          }
+          # config.js muss das Deployment ueberlebt haben (kommt aus der Infrastruktur):
+          curl -fsS --max-time 10 "${{ vars.FRONTEND_URL }}/config.js" | grep -q "TICTACTEST_CONFIG" || {
+            echo "::error::config.js fehlt im Bucket - Infrastruktur-Konfiguration verloren!"
+            exit 1
+          }
+
+      # ---------- Buchfuehrung ----------
 
       # Vermerkt diesen Tag als "zuletzt deployt", damit der naechste Lauf den richtigen
       # Vergleichspunkt findet (siehe Job "diff" oben).
@@ -131,7 +212,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           deployment_id=$(gh api "repos/${{ github.repository }}/deployments" --input - --jq '.id' <<EOF
-          {"ref":"$TAG","environment":"production","auto_merge":false,"required_contexts":[],"description":"TicTacTest $TAG auf der Web-Konsole deployt"}
+          {"ref":"$TAG","environment":"production","auto_merge":false,"required_contexts":[],"description":"TicTacTest $TAG deployt (Backend: ${{ needs.diff.outputs.backend }}, Frontend: ${{ needs.diff.outputs.frontend }})"}
           EOF
           )
           gh api "repos/${{ github.repository }}/deployments/$deployment_id/statuses" --input - <<EOF

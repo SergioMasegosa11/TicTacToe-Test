@@ -17,6 +17,9 @@ ihn in `main()` fest einzuschalten).
 - Web-Konsole (ttyd) macht das Release-JAR unverändert im Browser spielbar (`deploy/`), siehe `docs/deployment.md`
 - Deploy-Workflow (`.github/workflows/deploy.yml`): deployt bei jedem veröffentlichten Release nur, was sich seit dem letzten Deploy geändert hat (Backend und/oder Web-Konsole); eine frühere Version kann gezielt erneut deployt werden; ein Push auf `main` deployt nichts
 - Infra-Workflow (`.github/workflows/infra.yml`): manuelles `plan`/`apply`/`destroy` der EC2-Infrastruktur, getrennt vom App-Deployment
+- Statisches Frontend (`frontend/`): bettet die Web-Konsole ein, zeigt Backend- und Frontend-Version; wird als `tictactest-frontend-<version>.zip` mit jedem Release veröffentlicht und über einen S3-Bucket (Static Website) ausgeliefert, siehe `docs/webkonsole.md`
+- Versionsabfrage per HTTP (`deploy/version-server.py`, Port 8080): die laufende Backend-Version stammt automatisch aus dem Release-Tag; die Deploy-Pipeline prüft sie nach jedem Backend-Deploy
+- S3-Hosting, Instance Profile (LabInstanceProfile) und Port 8080 in der OpenTofu-Konfiguration; `config.js` des Frontends wird von der Infrastruktur geschrieben
 
 ## [1.0.2] - 2026-10-10
 

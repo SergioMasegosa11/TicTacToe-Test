@@ -6,12 +6,14 @@ Deployment als Web-App.
 
 ## Web-App
 
-🎮 **[TicTacTest spielen](http://<EC2-IP>:7681)** <!-- TODO: nach `tofu apply` die echte
-Adresse eintragen, siehe docs/deployment.md (Output `web_console_url`) -->
+🎮 **[TicTacTest spielen](http://tictactest-frontend-20261114172637170800000001.s3-website-us-east-1.amazonaws.com)**
+(Frontend; nur das Terminal: [Web-Konsole](http://54.236.134.78:7681), laufende Version:
+[version.txt](http://54.236.134.78:8080/version.txt))
 
 Läuft unverändert als `tictactest-<version>.jar` aus dem aktuellen Release in einer
-Web-Konsole (ttyd) auf einer EC2-Instanz. Mensch (X) gegen den Computer-Gegner aus
-`TicTacToeMain.main()`.
+Web-Konsole (ttyd) auf einer EC2-Instanz; das statische Frontend (`frontend/`) kommt aus
+einem S3-Bucket. Details: [docs/webkonsole.md](docs/webkonsole.md) und
+[docs/deployment.md](docs/deployment.md).
 
 ## Lokal spielen
 

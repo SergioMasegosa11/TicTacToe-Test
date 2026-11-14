@@ -26,6 +26,9 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      # terraform.tfvars ist bewusst nicht committet - die unkritischen Werte kommen
+      # in CI aus GitHub-Variables (siehe docs/deployment.md, Secrets-Konzept):
+      TF_VAR_frontend_bucket: ${{ vars.S3_BUCKET_FRONTEND }}
 
     steps:
       - name: Repository auschecken

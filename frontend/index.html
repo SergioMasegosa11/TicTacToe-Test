@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TicTacTest</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>TicTacTest</h1>
+    <p class="subtitle">Tic-Tac-Toe aus der Konsole &ndash; direkt im Browser spielbar.</p>
+  </header>
+
+  <main>
+    <section class="rules">
+      <h2>Spielregeln</h2>
+      <ul>
+        <li>Du spielst <strong>X</strong>, der Computer spielt <strong>O</strong>.</li>
+        <li>Einen Zug machst du, indem du die <strong>Nummer eines freien Feldes (0&ndash;8)</strong>
+            eintippst und mit <strong>Enter</strong> bestätigst. Feld 0 ist oben links,
+            die Felder sind zeilenweise nummeriert:</li>
+      </ul>
+      <pre class="board-help"> 0 | 1 | 2
+---+---+---
+ 3 | 4 | 5
+---+---+---
+ 6 | 7 | 8</pre>
+      <ul>
+        <li>Drei in einer Reihe (waagrecht, senkrecht oder diagonal) gewinnt.</li>
+        <li>Nach Spielende startet automatisch ein neues Spiel.</li>
+        <li>Klicke zuerst in das Terminal unten, damit deine Tastatur dort ankommt.</li>
+      </ul>
+    </section>
+
+    <section class="terminal">
+      <h2>Spiel</h2>
+      <!-- Das Terminal der Web-Konsole (ttyd). Die URL kommt aus config.js, nicht aus dem Code. -->
+      <iframe id="console" title="TicTacTest Web-Konsole"></iframe>
+      <p id="console-hint" class="hint hidden">
+        Web-Konsole nicht erreichbar &ndash; läuft sie unter der in <code>config.js</code>
+        konfigurierten Adresse?
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <span>Backend: <strong id="backend-version">&hellip;</strong></span>
+    <span>Frontend: <strong id="frontend-version">&hellip;</strong></span>
+  </footer>
+
+  <!-- Reihenfolge wichtig: zuerst Konfiguration und Version, dann die Logik. -->
+  <script src="config.js"></script>
+  <script src="version.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

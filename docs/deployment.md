@@ -1,143 +1,296 @@
 # Deployment: TicTacTest als Web-App
 
-Dieses Dokument beschreibt, wie TicTacTest auf der EC2-Instanz aus [`docs/iac.md`](iac.md)
-als Web-App läuft: das Release-JAR unverändert in einer Web-Konsole (ttyd) im Browser
-spielbar, ohne dass die Infrastruktur dafür bei jedem Deploy neu erstellt wird.
+Dieses Dokument beschreibt, wie TicTacTest auf der Infrastruktur aus
+[`docs/iac.md`](iac.md) läuft und deployt wird: das Release-JAR unverändert in einer
+Web-Konsole (ttyd, siehe [`docs/webkonsole.md`](webkonsole.md)) auf der EC2-Instanz, das
+statische Frontend in einem S3-Bucket. Zentrale Regel: **Infrastruktur und Applikation
+sind getrennt** - ein neuer Release erfordert weder `tofu apply` noch eine neue Instanz.
 
 ## Übersicht
 
 ```text
-infra.yml (manuell, selten)                 deploy.yml (automatisch, pro Release)
-┌──────────────────────────────┐            ┌─────────────────────────────────────┐
-│ tofu apply                   │            │ release: published                   │
-│  -> EC2-Instanz, Security    │            │  -> JAR aus dem Release herunterladen│
-│     Group, Key-Pair, EIP     │            │     (NICHT neu gebaut, RELEASE.md)   │
-│  -> cloud-init installiert   │  einmalig  │  -> Diff seit letztem Deploy prüfen   │
-│     ttyd + Platzhalter-Dienst│  bereitet  │     (Backend? Frontend? beides?)      │
-│                               │  vor  →    │  -> nur das per SSH aktualisieren,    │
-│ bleibt stehen, bis            │            │     Dienst neu starten               │
-│ "tofu destroy"                │            │  -> Deployment in GitHub vermerken    │
-└──────────────────────────────┘            └─────────────────────────────────────┘
+Browser ───────────────► Frontend  (S3 Static Website: index.html, app.js, version.js,
+   │                                config.js ← von OpenTofu geschrieben)
+   │ iframe / fetch
+   ▼
+EC2-Instanz (Elastic IP)
+   ├─ ttyd :7681 ── run-tictactest.sh ── java -jar current/tictactest-X.Y.Z.jar
+   └─ version-server.py :8080 ── current/version.txt   (laufende Version per HTTP)
+
+infra/ (OpenTofu, selten, bewusst)        deploy.yml (automatisch, pro Release)
+┌────────────────────────────────┐        ┌──────────────────────────────────────┐
+│ tofu apply                     │        │ release: published                    │
+│  -> Instanz, SG, EIP, Key,     │        │  -> Diff seit letztem DEPLOYTEN Tag   │
+│     S3-Bucket, config.js,      │ einmal │  -> Backend geändert?  JAR per SSH    │
+│     LabInstanceProfile         │ ─────► │     drauf, Dienst-Restart, Versions-  │
+│  -> cloud-init: ttyd, Java,    │        │     Check über :8080                  │
+│     Platzhalter-Dienst         │        │  -> Frontend geändert? Release-Zip    │
+│ bleibt stehen bis tofu destroy │        │     nach S3 (ohne config.js)          │
+└────────────────────────────────┘        └──────────────────────────────────────┘
 ```
 
 Ein **Push auf `main` deployt nichts** (`deploy.yml` hat keinen `push`-Trigger). Nur ein
 veröffentlichtes Release (Tag `vX.Y.Z`, siehe [`RELEASE.md`](../RELEASE.md)) oder ein
-manueller, bewusst ausgewählter Tag löst ein Deployment aus.
+manueller, bewusst ausgewählter Tag löst ein Deployment aus. Deployt werden immer die
+**Artefakte aus dem Release** (JAR, Frontend-Zip) - nie ein neu gebauter Stand.
 
 ## Secrets-Konzept
 
-| Secret | Wofür | Workflow | Woher |
-|---|---|---|---|
-| `AWS_ACCESS_KEY_ID` | Zugriff auf AWS (EC2 erstellen/ändern/löschen) | `infra.yml` | AWS Learner Lab → "AWS Details" |
-| `AWS_SECRET_ACCESS_KEY` | wie oben | `infra.yml` | AWS Learner Lab → "AWS Details" |
-| `AWS_SESSION_TOKEN` | wie oben (Learner-Lab-Zugänge sind **temporär**, Session Token zusätzlich zu Access Key/Secret nötig) | `infra.yml` | AWS Learner Lab → "AWS Details" |
-| `EC2_HOST` | IP/DNS der Instanz, Ziel für SSH/SCP | `deploy.yml` | Output `public_ip` von `tofu apply` |
-| `EC2_USER` | Login-Benutzer für SSH (z.B. `ec2-user` bei Amazon Linux) | `deploy.yml` | AMI-Doku |
-| `EC2_SSH_PRIVATE_KEY` | privater SSH-Schlüssel für den Zugriff auf die Instanz | `deploy.yml` | Output `ssh_private_key` von `tofu apply` (`tofu output -raw ssh_private_key`) |
-| `GITHUB_TOKEN` | JAR aus dem Release laden, Deployment vermerken | beide | automatisch von GitHub Actions bereitgestellt |
+### Welche Zugangsdaten braucht die Pipeline?
 
-Grundsatz (siehe auch `docs/iac.md`, Abschnitt State/Git): **keines** dieser Secrets landet
-je in einer Datei im Repository, sondern ausschliesslich als GitHub-Actions-Secret.
+| Wert | Typ | Wofür | Woher | Gültigkeit |
+|---|---|---|---|---|
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | **Secret** | `infra.yml` (tofu) und Frontend-Deploy nach S3 | AWS Learner Lab → "AWS Details", pro Session neu | **läuft mit der Lab-Session ab (~4 h)** |
+| `EC2_SSH_PRIVATE_KEY` | **Secret** | Backend-Deploy per SSH/SCP auf die Instanz | `tofu output -raw ssh_private_key` (einmalig) | bis zum nächsten `tofu destroy` |
+| `EC2_HOST`, `EC2_USER` | **Variable** | Ziel für SSH und Versions-Check | `tofu output public_ip` / AMI-Doku (`ec2-user`) | bis `destroy` (EIP bleibt stabil) |
+| `S3_BUCKET_FRONTEND`, `FRONTEND_URL` | **Variable** | Ziel/Prüfung des Frontend-Deploys | `tofu output frontend_bucket` / `frontend_url` | bis `destroy` |
+| `GITHUB_TOKEN` | automatisch | Release-Assets laden, Deployment vermerken | von GitHub Actions pro Lauf erzeugt | ein Workflow-Lauf |
 
-**Learner-Lab-Besonderheit:** Die AWS-Zugangsdaten laufen nach wenigen Stunden ab. Deshalb
-sind `infra.yml` und `deploy.yml` bewusst getrennt: `infra.yml` braucht die (kurzlebigen)
-AWS-Secrets und läuft nur manuell, wenn die Infrastruktur wirklich geändert werden soll.
-`deploy.yml` braucht dagegen nur den (langlebigen) SSH-Schlüssel, keine AWS-Zugangsdaten,
-und kann darum bei jedem Release automatisch laufen, auch wenn die Learner-Lab-Session
-gerade abgelaufen ist.
+**Secrets vs. Variables:** Secrets werden verschlüsselt gespeichert, in Logs maskiert und
+sind nach dem Speichern nicht mehr lesbar - dorthin gehört alles, womit man sich
+**authentifizieren** kann (Schlüssel, Tokens). Variables sind Klartext-Konfiguration -
+dorthin gehört, was ohnehin öffentlich sichtbar ist (die IP steht in jeder Spiel-URL, der
+Bucket-Name in der Frontend-URL). Wer alles in Secrets steckt, verliert Übersicht und
+Log-Lesbarkeit ohne Sicherheitsgewinn; wer Zugangsdaten in Variables steckt, hat sie
+veröffentlicht.
 
-## Ablauf im Detail
+### Abgelaufene Learner-Lab-Credentials
 
-### 1. Infrastruktur einmalig bereitstellen (`infra.yml` oder lokal `tofu apply`)
+Die AWS-Zugangsdaten laufen nach jeder Lab-Session ab. Konsequenzen:
 
-Siehe `docs/iac.md`. Ergebnis: eine laufende EC2-Instanz mit SSH-Zugriff, Security Group für
-Port 22 (SSH) und 7681 (ttyd), und einem von cloud-init eingerichteten, aber noch leeren
-`tictactest-console`-Dienst ("Noch kein Release deployt").
+- **Backend-Deploys funktionieren trotzdem:** sie brauchen nur SSH (langlebiger
+  Schlüssel), keine AWS-Zugangsdaten. Das ist der häufigste Fall (neues JAR).
+- **Frontend-Deploys und `infra.yml` schlagen mit abgelaufenen Credentials fehl** - und
+  zwar sichtbar: der S3-Schritt bricht mit `ExpiredToken` ab, der Workflow wird rot, der
+  Deployment-Vermerk wird nicht gesetzt (der nächste Lauf vergleicht also weiterhin mit
+  dem letzten *erfolgreichen* Stand).
+- **Nachdeployen:** neue Session starten, die drei AWS-Werte in den Repo-Secrets
+  aktualisieren (Settings → Secrets and variables → Actions), dann *Actions → Deploy →
+  Run workflow* mit dem Tag (und `force`, falls der Diff schon verbucht wäre). Es wird
+  exakt dasselbe Release-Artefakt deployt - nichts wird neu gebaut.
 
-### 2. App deployen (`deploy.yml`, automatisch bei jedem Release)
+### Wer sieht die Secrets? Logs, Forks, Pull Requests
 
-1. **Diff ermitteln:** Der Job `diff` fragt über die GitHub-Deployments-API den zuletzt
-   erfolgreich deployten Tag ab und vergleicht ihn mit dem neuen Tag
-   (`scripts/deploy-diff.sh`):
-   - `src/main/**`, `build.gradle`, `gradle.properties` geändert → **Backend** (`backend=true`)
-   - `deploy/**` (Bootstrap-/Wrapper-Skripte für die Web-Konsole) geändert → **Frontend** (`frontend=true`)
-   - Gibt es noch keinen Vorgänger, oder wurde `force` gewählt, gilt beides als geändert.
-2. **Deployen, nur wenn nötig:** Der Job `deploy` läuft nur, wenn `backend` oder `frontend`
-   `true` ist. Betrifft es nur das Backend, wird nur das neue JAR hochgeladen; betrifft es
-   nur das Frontend, werden nur `deploy/bootstrap.sh`/`deploy/run-tictactest.sh`
-   aktualisiert. Danach setzt `bootstrap.sh <version>` in jedem Fall den `current`-Symlink
-   auf die neu deployte Version und startet den systemd-Dienst `tictactest-console` neu -
-   die **Infrastruktur selbst wird dabei nicht verändert**.
-3. **Vermerken:** Ein neuer GitHub-Deployment-Eintrag (`ref=<Tag>`, Environment
-   `production`) wird angelegt, damit der nächste Lauf wieder den richtigen Vergleichspunkt
-   findet.
+- Lesen kann die Secret-Werte niemand mehr, auch Admins nicht - nur überschreiben.
+  Benutzen kann sie, wer Workflows im Repo auslösen darf.
+- In **Logs** maskiert GitHub registrierte Secrets (`***`). Trotzdem gilt: nie bewusst
+  `echo $SECRET`, und **nach jedem Lauf die Logs prüfen** - Maskierung schützt nicht vor
+  z.B. base64-kodierter Ausgabe.
+- **Forks und Pull Requests** von Forks bekommen keine Secrets - sonst könnte jeder per
+  PR einen Workflow einreichen, der sie exfiltriert. Deshalb deployt hier auch nichts an
+  PRs: nur `release:published` und manuelles `workflow_dispatch`.
 
-### 3. Eine frühere Version gezielt erneut deployen
+### Schaden im Ernstfall und Reaktion
 
-*Actions → Deploy (Web-Konsole) → Run workflow*, mit dem gewünschten `tag` (z.B. `v1.0.2`)
-und `force: true`. `force` überspringt den Diff-Vergleich, lädt genau dieses Release-JAR
-und setzt den `current`-Symlink darauf zurück - ohne etwas neu zu bauen oder die
-Infrastruktur anzufassen.
+- **AWS-Keys öffentlich:** jemand kann bis Session-Ende im Lab-Konto Ressourcen
+  erstellen/löschen (Kosten, Datenverlust). Reaktion: Session beenden (invalidiert die
+  Keys), Secrets rotieren, prüfen was erstellt wurde. In einem echten Konto wäre das ein
+  Sicherheitsvorfall mit Kostenrisiko in beliebiger Höhe (Crypto-Mining) - Keys sofort
+  deaktivieren, CloudTrail auswerten.
+- **SSH-Key öffentlich:** Vollzugriff auf die Instanz (aber nur auf sie). Reaktion:
+  `tofu destroy`/`apply` erzeugt ein neues Key-Paar, neues Secret setzen.
+- Generell: Git-Historie gilt als unlöschbar - ein einmal committetes Secret ist
+  kompromittiert, auch wenn der Commit später entfernt wird. Rotieren, nicht hoffen.
+
+### Wie löst man das ohne Learner Lab? (OIDC)
+
+In einem echten Setup speichert man **gar keine langlebigen AWS-Keys** in GitHub:
+GitHub Actions holt sich per **OIDC** (OpenID Connect) pro Workflow-Lauf ein
+kurzlebiges Token. AWS vertraut dabei einer konfigurierten Identität ("Repo X, Branch/
+Tag Y darf Rolle Z übernehmen", `aws-actions/configure-aws-credentials` mit
+`role-to-assume`). Vorteile: nichts zu rotieren, nichts läuft ab "zur falschen Zeit",
+feingranulare Rechte pro Repo/Umgebung. Im Learner Lab nicht möglich, weil man keine
+IAM-Rollen/Identity-Provider anlegen darf - genau deshalb die Krücke mit den
+Session-Credentials als Secrets.
+
+## Wie kommt das JAR auf die Instanz? (Entscheidung)
+
+Gewählt: **per SSH/SCP von aussen** (GitHub Actions lädt das Release-Asset und kopiert es
+auf die Instanz). Abwägung:
+
+| Variante | Beurteilung |
+|---|---|
+| Instanz lädt direkt vom GitHub-Release | Scheitert, sobald das Repository privat ist (Token müsste AUF die Instanz). Instanz braucht Internet-Zugriff auf GitHub. Nach Reboot ok (JAR liegt lokal), aber der Versionswechsel müsste trotzdem von aussen angestossen werden. |
+| privater S3-Bucket + Instance Profile | Sauber (keine Keys auf der Instanz), aber ein zusätzlicher Kopierschritt und Bucket nur dafür; die Pipeline bräuchte für JEDES Backend-Deploy gültige AWS-Credentials - im Learner Lab laufen die ständig ab. |
+| **SSH/SCP von aussen (gewählt)** | Pipeline braucht nur den langlebigen SSH-Key (Learner-Lab-tauglich!), funktioniert mit privatem Repo (Token bleibt im Runner), Versionswechsel und Dienst-Restart passieren im selben Schritt. |
+
+- **Nach einem Neustart** weiss die Instanz selbst, was laufen soll: der
+  `current`-Symlink zeigt auf `/opt/tictactest/releases/<version>/` (JAR + `version.txt`
+  liegen lokal auf der Platte), systemd startet beide Dienste automatisch.
+- **Versionswechsel ohne neue Instanz:** neues JAR nach `releases/<neu>/` kopieren,
+  `bootstrap.sh <neu>` setzt den Symlink um und startet den Dienst neu - die Instanz,
+  ihre IP und die Infrastruktur bleiben unverändert (`tofu plan`: keine Änderungen).
+
+**SSH vs. `aws ssm send-command` aus GitHub Actions:** SSM braucht keine offenen Ports
+und keinen SSH-Key (Auth über AWS-Credentials + Instance Profile), Befehle und Ergebnisse
+sind in AWS auditierbar - dafür bräuchte die Pipeline bei jedem Deploy gültige
+AWS-Credentials, die im Learner Lab dauernd ablaufen, und Dateiübertragung ist mit SSM
+umständlich (erst S3, dann herunterladen). SSH braucht Port 22 und ein Key-Secret, ist
+dafür direkt (scp) und von den kurzlebigen Lab-Credentials unabhängig. Hier gewinnt SSH;
+mit OIDC in einem echten Konto würde die Abwägung eher Richtung SSM kippen.
+
+## Änderungen zwischen Releases erkennen
+
+- **Pfad-Zuordnung** (siehe [`scripts/deploy-diff.sh`](../scripts/deploy-diff.sh)):
+  `src/main/**`, `build.gradle`, `gradle.properties` → Backend (JAR-Inhalt);
+  `deploy/**` → ebenfalls Backend (Betrieb des Dienstes auf der Instanz);
+  `frontend/**` → Frontend. Doku, Tests, Workflows, `infra/` lösen **kein** Deployment
+  aus - Infrastruktur ändert sich nur bewusst per `tofu apply`, nie als Nebenwirkung
+  eines Releases.
+- **Verglichen wird mit dem zuletzt DEPLOYTEN Tag** (GitHub-Deployments-API), nicht mit
+  dem letzten Commit: zwischen zwei Releases liegen beliebig viele Commits - der
+  Vergleich mit nur dem letzten Commit würde fast alle Änderungen übersehen. Und falls
+  ein Release-Deploy fehlschlug, ist der richtige Vergleichspunkt der letzte wirklich
+  ausgerollte Stand, nicht der letzte Tag.
+- **Allererstes Release** (kein Vergleichspunkt): es wird vollständig deployt
+  (Backend + Frontend) - dasselbe gilt bei `force: true`.
+- **Warum hilft der `paths`-Filter von GitHub Actions nicht?** Er entscheidet nur, ob
+  ein Workflow bei einem *Push-Event* überhaupt startet, und vergleicht dabei die
+  gepushten Commits. Er kann weder zwei Release-Tags vergleichen noch "seit dem letzten
+  erfolgreichen Deploy" berücksichtigen, und bei `release:`-Events greift er gar nicht.
+
+## Manuelles Deployment (Vorlage für die Pipeline)
+
+So wird von Hand deployt - exakt diese Schritte führt `deploy.yml` automatisch aus.
+Vorbereitung einmalig: Frontend-Bucket per CLI erstellen (Learner-Lab-SCP verbietet
+`s3:GetBucketObjectLockConfiguration`, das der AWS-Provider bei jedem Refresh eines
+verwalteten `aws_s3_bucket` aufruft - Begründung in [`infra/s3.tf`](../infra/s3.tf)),
+Namen in `terraform.tfvars` eintragen, dann `tofu apply`:
+
+```bash
+aws s3api create-bucket --bucket tictactest-frontend-<eindeutiges-suffix>
+cd infra && tofu apply       # Website-Config, Policy, config.js, Instanz, EIP, ...
+```
+
+```bash
+# --- Variablen aus den OpenTofu-Outputs ---
+cd infra
+IP=$(tofu output -raw public_ip)
+BUCKET=$(tofu output -raw frontend_bucket)
+tofu output -raw ssh_private_key > key.pem && chmod 600 key.pem
+VERSION=1.0.2   # zu deployende Release-Version (Tag ohne "v")
+
+# --- 1. Release-Assets herunterladen (NICHT bauen) ---
+gh release download "v$VERSION" --pattern "tictactest-*"
+sha256sum -c "tictactest-$VERSION.jar.sha256"
+
+# --- 2. Backend: JAR + Betriebs-Skripte auf die Instanz, Dienst neu starten ---
+ssh -i key.pem ec2-user@$IP "mkdir -p /opt/tictactest/releases/$VERSION /opt/tictactest/deploy-src"
+scp -i key.pem "tictactest-$VERSION.jar" ec2-user@$IP:/opt/tictactest/releases/$VERSION/
+scp -i key.pem ../deploy/bootstrap.sh ../deploy/run-tictactest.sh ../deploy/version-server.py \
+    ec2-user@$IP:/opt/tictactest/deploy-src/
+ssh -i key.pem ec2-user@$IP "chmod +x /opt/tictactest/deploy-src/bootstrap.sh && /opt/tictactest/deploy-src/bootstrap.sh $VERSION"
+
+# --- 3. Versions-Check: läuft wirklich die neue Version? ---
+curl "http://$IP:8080/version.txt"            # muss $VERSION ausgeben
+
+# --- 4. Frontend: Release-Archiv nach S3 (config.js NIE anfassen) ---
+sha256sum -c "tictactest-frontend-$VERSION.zip.sha256"
+mkdir -p /tmp/frontend-dist && unzip -o "tictactest-frontend-$VERSION.zip" -d /tmp/frontend-dist
+aws s3 sync /tmp/frontend-dist "s3://$BUCKET" --delete --exclude "config.js"
+
+# --- 5. Prüfen ---
+tofu output -raw frontend_url                 # im Browser öffnen und spielen
+tofu plan                                     # muss "No changes" zeigen: das Deployment
+                                              # hat die Infrastruktur nicht verändert
+```
+
+Für ein zweites Release (B): nur `VERSION` ändern und Schritte 1-5 wiederholen - **ohne
+`tofu apply`, ohne neue Instanz**. `tofu plan` zeigt weiterhin keine Änderungen.
+
+## Automatisches Deployment (`deploy.yml`)
+
+1. **Diff:** Job `diff` holt den zuletzt deployten Tag über die Deployments-API und
+   vergleicht (`scripts/deploy-diff.sh`) → Outputs `backend`/`frontend`.
+2. **Backend** (nur wenn geändert): Release-JAR laden, Prüfsumme verifizieren, per
+   SCP auf die Instanz, `bootstrap.sh <version>` (Symlink + Dienst-Restart). Danach
+   pollt der Workflow bis zu 2 Minuten `http://<host>:8080/version.txt` - meldet die
+   Instanz nicht **genau** die neue Version, schlägt der Workflow fehl.
+3. **Frontend** (nur wenn geändert): Frontend-Zip aus dem Release laden, Prüfsumme
+   verifizieren, `aws s3 sync --delete --exclude config.js` in den Bucket. Danach wird
+   geprüft, dass `version.js` die neue Version ausliefert **und** `config.js` noch da
+   ist. Würde das Deployment `config.js` löschen, wüsste das Frontend nicht mehr, wo
+   die Web-Konsole läuft - deshalb ist die Datei vom `--delete`-Sync ausgenommen und
+   wird zusätzlich nach jedem Deploy geprüft.
+4. **Concurrency:** `concurrency: deploy-production` - zwei gleichzeitige Deployments
+   würden sich auf Instanz und Bucket gegenseitig überschreiben; der zweite Lauf wartet.
+5. **Vermerken:** GitHub-Deployment (`environment=production`) mit dem Tag - der
+   Vergleichspunkt für den nächsten Lauf.
+
+**Spieler während des Neustarts** verlieren ihre laufende Partie: der Dienst-Restart
+beendet alle ttyd-Kindprozesse (ihre JVMs). Bei einem 2-Minuten-Spiel ist das vertretbar.
+Verhindern könnte man es mit einer Drain-Phase (keine neuen Verbindungen, alte Partien
+zu Ende spielen lassen) oder blau/grün: neue Version auf zweitem Port/zweiter Instanz
+starten und erst dann umschalten (nur Konzept, hier nicht umgesetzt).
+
+### Gezielt eine Version deployen (Rollback)
+
+*Actions → Deploy (Web-Konsole) → Run workflow*, Tag wählen (z.B. `v1.0.2`),
+`force: true`. Es werden Backend **und** Frontend genau dieser Version ausgerollt -
+aus den damaligen Release-Assets, ohne Build, ohne Infrastruktur-Änderung. Dieselbe
+Mechanik deckt drei Fälle ab:
+
+- **Rollback:** v1.3.0 ist kaputt → `v1.2.0` mit `force` deployen.
+- **Kaputtes Release:** der Versions-Check (Schritt 2/3 oben) schlägt fehl, der Workflow
+  wird rot. Wiederherstellung = ein `force`-Deploy der letzten guten Version, Dauer
+  wenige Minuten. (Achtung: ein JAR, das gar nicht startet, fällt erst hier auf - der
+  Release-Prozess testet zwar `java -jar`, aber nicht die Umgebung der Instanz.)
+- **Nach `tofu destroy` + `apply`:** neue IP/Bucket → in GitHub `EC2_HOST`,
+  `S3_BUCKET_FRONTEND`, `FRONTEND_URL` (Variables) und `EC2_SSH_PRIVATE_KEY` (Secret)
+  aktualisieren, dann die gewünschte Version mit `force` deployen.
+
+## Experimente (Robustheit)
+
+| Experiment | Ergebnis |
+|---|---|
+| Learner-Lab-Session beenden und neu starten | Instanz wird vom Lab gestoppt und wieder gestartet. Elastic IP bleibt → gleiche URL. systemd startet `tictactest-console` und `tictactest-version` automatisch, der `current`-Symlink zeigt unverändert auf die zuletzt deployte Version → gleiche Version läuft, ohne dass man etwas tut. |
+| Einrichtung der Instanz ändern (z.B. deploy/bootstrap.sh) | `tofu plan`: **keine Änderungen** - `user_data` steht unter `lifecycle.ignore_changes`, weil cloud-init ohnehin nur beim allerersten Start läuft. Die Änderung wird stattdessen beim nächsten Backend-Deploy per SSH ausgerollt. Ohne diese Vorkehrung (`user_data_replace_on_change = true`) würde jede Skript-Änderung die **Instanz ersetzen**: neue Instanz, deployter Stand weg - die EIP bliebe zwar bestehen, aber genau die Trennung Infrastruktur/Applikation wäre verletzt. |
+| `tofu destroy`, dann `tofu apply` | Instanz, EIP, Key-Paar, Security Group und alle S3-Einstellungen werden neu erstellt: neue Instanz-ID, **neue IP**, neues SSH-Key-Paar; OpenTofu schreibt `config.js` automatisch mit der neuen IP. Der Bucket selbst bleibt bestehen (per CLI erstellt, nicht im State - Learner-Lab-SCP, siehe oben), das zuletzt deployte Frontend damit auch. cloud-init richtet ttyd/Java/Dienste wieder ein, aber das Backend ist leer ("Noch kein Release deployt"). Bis dieselbe Version wieder läuft: GitHub-Variables (`EC2_HOST`) und das Secret `EC2_SSH_PRIVATE_KEY` auf die neuen Werte setzen und die Version per `force`-Deploy (oder von Hand) erneut ausrollen. |
 
 ## Reflexion
 
-### Warum getrennte Workflows für Infrastruktur und App?
-
-Weil sie sich in Häufigkeit, Risiko und benötigten Zugangsdaten stark unterscheiden:
-Infrastruktur ändert sich selten und bewusst (braucht die kurzlebigen AWS-Zugangsdaten und
-einen `plan`-Blick vorher), ein App-Deploy soll dagegen bei jedem Release unkompliziert und
-automatisch laufen (braucht nur SSH). Diese Trennung ist genau das, was der
-IaC-Auftrag ("Infrastruktur, CI/CD, spätere Deployment-Umgebungen") vorbereitet hat.
-
-### Warum nur deployen, was sich geändert hat?
-
-Ein Deploy ist ein Eingriff auf einem laufenden System (Datei kopieren, Dienst neu
-starten - kurze Downtime der Web-Konsole). Ändert sich z.B. nur `CHANGELOG.md`, braucht es
-gar kein Deployment; ändert sich nur die Web-Konsole, muss nicht das (unveränderte) JAR neu
-hochgeladen werden. Das macht Deploys schneller, nachvollziehbarer (die Logs zeigen genau,
-was diesmal passiert ist) und reduziert unnötige Neustarts des laufenden Spiels.
-
-### Promotion-Strategie: build once, deploy many
-
-Der Deploy-Workflow baut **nie** selbst ein JAR - er lädt immer ein bereits im
-Release-Prozess gebautes und getestetes Artefakt (`tictactest-X.Y.Z.jar`) herunter und
-prüft dessen Checksumme. Dasselbe, unveränderte Artefakt würde man in einer grösseren
-Pipeline durch mehrere Umgebungen reichen, statt für jede Umgebung neu zu bauen:
+### Weg einer Änderung (Commit → läuft)
 
 ```text
-Release-Tag vX.Y.Z (RELEASE.md: Build + Tests einmal, JAR + Checksum als Artefakt)
-        │
-        ▼
-   deploy (dev)      - automatisch bei jedem Release, kleine/instabile Umgebung
-        │  manuelle Freigabe (GitHub-Environment-Protection-Rule)
-        ▼
-   deploy (staging)  - gleiches JAR, eigene infra/*.tfvars bzw. OpenTofu-Workspace
-        │  manuelle Freigabe, ggf. zusätzliche Tests/Abnahme
-        ▼
-   deploy (prod)     - gleiches JAR, eigene Secrets/Environment, strengere Freigabe
+Backend:  Commit auf Branch → PR/Review → main → Version+Changelog → Tag vX.Y.Z
+          → release.yml (Tests, JAR bauen, Release mit Assets)
+          → deploy.yml: diff=backend → JAR per SSH → Restart → Versions-Check ✓
+
+Frontend: ... derselbe Weg bis zum Release ...
+          → deploy.yml: diff=frontend → Zip nach S3 (ohne config.js) → version.js-Check ✓
 ```
 
-Für diesen Lernschritt gibt es nur eine Umgebung (`production`, eine einzelne EC2-Instanz).
-Der Ausbau auf echte `dev`/`staging`/`prod`-Stufen würde bedeuten:
+**Automatisiert:** Tests, Release, Diff-Erkennung, beide Deploy-Wege, Verifikation.
+**Manuell bleiben:** `tofu apply` bei Infrastruktur-Änderungen (bewusst: `plan` lesen!)
+und das Auffrischen der Learner-Lab-Credentials bzw. der GitHub-Werte nach `destroy`.
 
-- **GitHub Environments** pro Stufe, mit eigenen Secrets (`EC2_HOST` etc. pro Umgebung) und
-  zunehmend strengeren Freigabe-Regeln (z.B. Pflicht-Review vor `prod`).
-- **Eigener State pro Umgebung** in `infra/` (z.B. `dev.tfvars`/`staging.tfvars`/
-  `prod.tfvars` oder OpenTofu-Workspaces), damit ein `tofu apply` für `dev` nie versehentlich
-  `prod` verändert.
-- **Dasselbe JAR** wandert durch alle Stufen (dieser Workflow lädt es bereits pro Tag von
-  der Release-Seite statt es neu zu bauen) - das ist die eigentliche Promotion: nicht neu
-  bauen, sondern eine bereits geprüfte Version weiterreichen.
-- Ein Redeploy einer älteren Version (siehe oben, `force: true`) ist in diesem Modell auch
-  ein Rollback-Werkzeug: dieselbe Mechanik, die eine ältere Version erneut ausrollt, würde
-  im Ernstfall auch eine fehlerhafte `prod`-Version schnell durch die letzte funktionierende
-  ersetzen.
+### Mehrere Umgebungen (dev → staging → prod)
 
-### Was würde ich als Nächstes verbessern?
+- **OpenTofu:** dieselbe Konfiguration, pro Umgebung eigener State + eigene Werte
+  (`dev.tfvars`/`staging.tfvars`/`prod.tfvars` oder Workspaces): gleicher Code, gleiche
+  Ressourcen-Struktur; unterschiedlich sind z.B. `name_prefix`, `instance_type`,
+  `allowed_cidr`. Pro Umgebung entstehen eigene Instanz, EIP und Bucket.
+- **GitHub Environments** pro Stufe mit eigenen Variables/Secrets (`EC2_HOST` usw. je
+  Umgebung) und Schutzregeln - nach `prod` deployt nur, wer das Environment freigeben
+  darf (**Required Reviewers**).
+- **Promotion:** dasselbe, bereits getestete Artefakt wird weitergereicht - nie pro
+  Umgebung neu gebaut (sonst wäre nicht garantiert, dass prod genau das Getestete
+  bekommt). Auslöser: Release → automatisch nach dev; nach staging per manueller
+  Freigabe oder grünem Smoke-Test (z.B. Versions-Check + eine Partie per Skript);
+  nach prod nur per manueller Freigabe durch Berechtigte.
+- **Änderungserkennung je Umgebung:** der Vergleichspunkt ist der zuletzt in *dieser*
+  Umgebung deployte Tag (Deployments-API mit `environment=dev|staging|prod`) - genau
+  deshalb vergleicht der Workflow heute schon gegen das Deployment und nicht gegen
+  "das vorherige Release": Umgebungen dürfen unterschiedlich weit hinterherhinken.
 
-- Eine zweite, kleinere Instanz als echte `staging`-Umgebung, bevor `production` aktualisiert
-  wird (aktuell gibt es nur eine Stufe).
-- `allowed_cidr` in `infra/variables.tf` einschränken, statt für SSH `0.0.0.0/0` zu erlauben
-  (aktuell bewusst offen gehalten, damit der Zugriff von überall zum Testen funktioniert).
-- Ein Remote-State-Backend (z.B. S3) für `infra/`, sobald mehrere Personen/Umgebungen den
-  gleichen State teilen (siehe `docs/iac.md`, Abschnitt 7).
+### Nachweis der Trennung (Auftrag 3, Teil 6)
+
+Nach dem Merge dieses Branches durchspielen und hier die Links zu den Workflow-Läufen
+eintragen:
+
+- [ ] Nur-Frontend-Release (z.B. Farbe in `frontend/style.css`): Frontend-Version neu,
+      Backend-Version unverändert, kein SSH-Schritt im Log
+- [ ] Nur-Backend-Release (z.B. GreedyPlayer in `main()` fest einschalten):
+      Backend-Version neu, Frontend-Job-Schritte übersprungen
+- [ ] Release mit beidem: beide Wege laufen
+- [ ] Push auf `main` ohne Tag: kein Deploy-Workflow-Lauf
