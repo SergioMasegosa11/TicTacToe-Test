@@ -20,3 +20,14 @@ yarn-error.log*
 
 # Kompilierte Klassen der IDE
 bin/
+
+# OpenTofu/Terraform: State und Geheimnisse duerfen nie committet werden (siehe docs/iac.md).
+# .terraform/ ist bereits durch die Regel ".*" oben abgedeckt.
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfvars
+!*.tfvars.example
+*.pem
+crash.log
+

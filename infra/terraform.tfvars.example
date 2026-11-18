@@ -1,0 +1,13 @@
+# Beispiel-Werte, unkritisch und darum committet (siehe docs/iac.md, "Was gehoert in Git").
+# Fuer eigene Werte: diese Datei nach terraform.tfvars kopieren und anpassen.
+# terraform.tfvars selbst wird NICHT committet (siehe .gitignore).
+
+region        = "us-east-1"  # AWS Learner Lab erlaubt nur us-east-1 (und us-west-2)
+instance_type = "t3.micro"
+allowed_cidr  = "0.0.0.0/0" # besser: die eigene oeffentliche IP, z.B. "203.0.113.4/32"
+name_prefix   = "tictactest"
+
+# Einmalig per CLI erstellen (Learner-Lab-SCP verbietet die Verwaltung des Buckets selbst
+# in OpenTofu, Begruendung in infra/s3.tf). Namen sind weltweit eindeutig -> Suffix anhaengen:
+#   aws s3api create-bucket --bucket tictactest-frontend-<eindeutiges-suffix>
+frontend_bucket = "tictactest-frontend-CHANGEME"

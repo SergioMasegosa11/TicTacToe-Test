@@ -1,0 +1,24 @@
+#!/bin/bash
+# Von OpenTofu als EC2 user_data injiziert (siehe infra/main.tf). Legt bootstrap.sh,
+# run-tictactest.sh und version-server.py - unveraendert aus deploy/ - auf der Instanz ab
+# und fuehrt bootstrap.sh EINMAL ohne Version aus (Platzhalter-Dienst, noch kein JAR).
+# Jedes spaetere App-Deploy laeuft ueber .github/workflows/deploy.yml per SSH, OHNE dass
+# diese Infrastruktur oder dieses Skript erneut laufen muss (lifecycle ignore_changes).
+set -euo pipefail
+
+mkdir -p /opt/tictactest/deploy-src
+
+cat > /opt/tictactest/deploy-src/run-tictactest.sh <<'RUN_TICTACTEST_EOF'
+${run_tictactest_sh}
+RUN_TICTACTEST_EOF
+
+cat > /opt/tictactest/deploy-src/version-server.py <<'VERSION_SERVER_EOF'
+${version_server_py}
+VERSION_SERVER_EOF
+
+cat > /opt/tictactest/deploy-src/bootstrap.sh <<'BOOTSTRAP_EOF'
+${bootstrap_sh}
+BOOTSTRAP_EOF
+
+chmod +x /opt/tictactest/deploy-src/run-tictactest.sh /opt/tictactest/deploy-src/bootstrap.sh /opt/tictactest/deploy-src/version-server.py
+/opt/tictactest/deploy-src/bootstrap.sh
