@@ -6,6 +6,16 @@ die Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/) (s
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-11-18
+
+Reines Backend-Release (Nachweis der Deployment-Trennung, Auftrag 3 Teil 6):
+Das Banner der Web-Konsole nannte fälschlich GreedyPlayer als Gegner - tatsächlich
+spielt RandomPlayer (siehe `TicTacToeMain.main()`). Das Frontend bleibt unverändert
+und darf nicht neu deployt werden.
+
+### Fixed
+- Web-Konsolen-Banner (`deploy/run-tictactest.sh`): Gegner korrekt als RandomPlayer benannt
+
 ## [1.0.4] - 2026-11-18
 
 Reines Frontend-Release (Nachweis der Deployment-Trennung, Auftrag 3 Teil 6):
