@@ -219,6 +219,13 @@ Für ein zweites Release (B): nur `VERSION` ändern und Schritte 1-5 wiederholen
 5. **Vermerken:** GitHub-Deployment (`environment=production`) mit dem Tag - der
    Vergleichspunkt für den nächsten Lauf.
 
+**Gelernte Stolperfalle:** Ein Release, das ein Workflow mit dem automatischen
+`GITHUB_TOKEN` erstellt, löst **keine** weiteren Workflows aus (GitHubs Schutz vor
+Endlosschleifen) - das `release: published`-Event erreichte `deploy.yml` beim ersten
+Versuch (v1.0.3) nie. Lösung: `release.yml` stösst das Deployment am Ende selbst per
+`gh workflow run deploy.yml -f tag=<Tag>` an (`workflow_dispatch` ist eine dokumentierte
+Ausnahme dieser Regel und braucht die Permission `actions: write`).
+
 **Spieler während des Neustarts** verlieren ihre laufende Partie: der Dienst-Restart
 beendet alle ttyd-Kindprozesse (ihre JVMs). Bei einem 2-Minuten-Spiel ist das vertretbar.
 Verhindern könnte man es mit einer Drain-Phase (keine neuen Verbindungen, alte Partien
