@@ -19,6 +19,7 @@ on:
 permissions:
   contents: write # zum Erstellen des GitHub Releases
   checks: read    # zum Pruefen der CI-Ergebnisse des getaggten Commits
+  actions: write  # zum Anstossen des Deploy-Workflows (siehe letzter Schritt)
 
 env:
   TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -195,3 +196,14 @@ jobs:
             --title "TicTacTest $TAG" \
             --notes-file release-notes.md \
             --verify-tag
+
+      # WICHTIG: Ein mit dem automatischen GITHUB_TOKEN erstelltes Release loest KEINE
+      # weiteren Workflows aus (GitHub verhindert so Endlosschleifen) - das Event
+      # "release: published" erreicht deploy.yml also nie. Deshalb wird das Deployment
+      # hier explizit per workflow_dispatch gestartet (dokumentierte Ausnahme der Regel).
+      # Fuer von Hand veroeffentlichte Releases bleibt der release-Trigger in deploy.yml
+      # weiterhin wirksam.
+      - name: Deployment anstossen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main -f tag="$TAG"

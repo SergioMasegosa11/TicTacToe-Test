@@ -6,6 +6,15 @@ die Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/) (s
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-11-18
+
+Reines Frontend-Release (Nachweis der Deployment-Trennung, Auftrag 3 Teil 6):
+Akzentfarbe der Webseite von Grün auf Blau geändert. Am Spiel/Backend hat sich
+nichts geändert - das Deployment darf nur das Frontend ausrollen.
+
+### Changed
+- Frontend: Akzentfarbe von Grün (#95c11e) auf Blau (#4da3ff)
+
 ## [1.0.3] - 2026-11-04
 
 Deployment als Web-App. Am Spiel selbst hat sich nichts geändert (weiterhin RandomPlayer
