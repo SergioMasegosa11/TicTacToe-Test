@@ -14,7 +14,7 @@ while true; do
     continue
   fi
 
-  echo "=== TicTacTest ($(basename "$JAR")) - es spielt: Mensch (X) gegen GreedyPlayer (O) ==="
+  echo "=== TicTacTest ($(basename "$JAR")) - es spielt: Mensch (X) gegen RandomPlayer (O) ==="
   java -jar "$JAR"
 
   echo
