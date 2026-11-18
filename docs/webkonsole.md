@@ -72,8 +72,11 @@ Die Web-Konsole ist für **alle erreichbar, die die URL kennen**. Deshalb gilt:
 - Das Spiel selbst begrenzt Eingaben (Zeilenlänge, Anzahl Fehlversuche, Eingaben werden
   nie ungefiltert zurückgegeben - siehe `HumanPlayer.java`), sodass bösartige Eingaben
   weder das Terminal kapern noch den Prozess ewig blockieren.
-- Die Security Group öffnet nur die nötigen Ports (22 eingeschränkt, 7681, 8080 -
-  Begründung in [`infra/main.tf`](../infra/main.tf)).
+- Die Security Group öffnet nur die nötigen Ports (22, 7681, 8080 - Begründung in
+  [`infra/main.tf`](../infra/main.tf)). Port 22 ist dabei bewusst für alle IPs offen:
+  die Deploy-Pipeline verbindet sich von GitHub-Runnern ohne feste IP. Der Schutz ist
+  die Key-Authentifizierung - SSH-Passwort-Login ist auf Amazon Linux deaktiviert,
+  ohne den privaten Schlüssel kommt niemand hinein.
 
 ## 4. Versionsabfrage per HTTP
 

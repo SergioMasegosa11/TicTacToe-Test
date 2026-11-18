@@ -141,8 +141,14 @@ resource "aws_instance" "tictactest" {
   # Instanz ERSETZEN (neue Instanz, Deploy-Stand weg) - genau das, was die Trennung
   # "Infrastruktur vs. Applikation" verhindern soll. Nach destroy+apply greift
   # automatisch wieder der aktuelle Stand der Skripte.
+  #
+  # ami ebenfalls ignorieren: data.aws_ami waehlt mit most_recent das jeweils neueste
+  # Amazon-Linux-Image. Sobald Amazon ein neues veroeffentlicht, wuerde JEDER plan die
+  # Instanz ersetzen wollen (inkl. deploytem Release!). Das neueste Image gilt deshalb
+  # nur bei der Erstellung; ein Image-Upgrade ist eine bewusste Entscheidung
+  # (destroy/apply oder "tofu taint aws_instance.tictactest").
   lifecycle {
-    ignore_changes = [user_data]
+    ignore_changes = [ami, user_data]
   }
 
   tags = {

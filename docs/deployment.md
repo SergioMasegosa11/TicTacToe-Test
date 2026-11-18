@@ -219,6 +219,14 @@ Für ein zweites Release (B): nur `VERSION` ändern und Schritte 1-5 wiederholen
 5. **Vermerken:** GitHub-Deployment (`environment=production`) mit dem Tag - der
    Vergleichspunkt für den nächsten Lauf.
 
+**Gelernte Stolperfalle (AMI-Drift):** `data.aws_ami` mit `most_recent = true` wählt
+immer das neueste Amazon-Linux-Image. Als Amazon ein neues veröffentlichte, wollte der
+nächste `tofu plan` plötzlich die **Instanz ersetzen** (inkl. deploytem Release) - obwohl
+nur eine Firewall-Regel geändert werden sollte. Deshalb steht `ami` jetzt in
+`lifecycle.ignore_changes`: das neueste Image gilt nur bei der Erstellung, ein Upgrade
+ist eine bewusste Entscheidung. Genau dafür liest man `plan` **immer**, bevor man
+`apply` bestätigt.
+
 **Gelernte Stolperfalle:** Ein Release, das ein Workflow mit dem automatischen
 `GITHUB_TOKEN` erstellt, löst **keine** weiteren Workflows aus (GitHubs Schutz vor
 Endlosschleifen) - das `release: published`-Event erreichte `deploy.yml` beim ersten
