@@ -6,6 +6,15 @@ die Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/) (s
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-11-18
+
+Release mit Backend- UND Frontend-Änderung (Nachweis der Deployment-Trennung,
+Auftrag 3 Teil 6, Fall 3): beide Teile müssen deployt werden.
+
+### Changed
+- Frontend: Akzentfarbe von Blau (#4da3ff) auf Orange (#ff9f43)
+- Backend: Javadoc von `TicTacToeMain` um den Web-Konsolen-Betrieb ergänzt
+
 ## [1.0.5] - 2026-11-18
 
 Reines Backend-Release (Nachweis der Deployment-Trennung, Auftrag 3 Teil 6):
