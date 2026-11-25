@@ -9,6 +9,8 @@ import ch.bbw.m450.tictactoe.players.RandomPlayer;
 
 /**
  * A small tic-tac-toe board. A human (X) plays against a computer choosing random free fields (O).
+ * Runs locally via {@code java -jar} or in the browser through the ttyd web console
+ * (see docs/webkonsole.md); input and output stay plain stdin/stdout either way.
  */
 public class TicTacToeMain {
 
